@@ -21,6 +21,108 @@ pub enum Tab {
     Jobs,
 }
 
+/// Patch list status tabs (Radicle states + All).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PatchStatus {
+    #[default]
+    Open,
+    Draft,
+    Merged,
+    Archived,
+    All,
+}
+
+impl PatchStatus {
+    const ALL: &[Self] = &[
+        Self::Open,
+        Self::Draft,
+        Self::Merged,
+        Self::Archived,
+        Self::All,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Open",
+            Self::Draft => "Draft",
+            Self::Merged => "Merged",
+            Self::Archived => "Archived",
+            Self::All => "All",
+        }
+    }
+
+    fn matches(self, state: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Open => state == "open",
+            Self::Draft => state == "draft",
+            Self::Merged => state == "merged",
+            Self::Archived => state == "archived",
+        }
+    }
+}
+
+/// Issue list status tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IssueStatus {
+    #[default]
+    Open,
+    Closed,
+    All,
+}
+
+impl IssueStatus {
+    const ALL: &[Self] = &[Self::Open, Self::Closed, Self::All];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Open",
+            Self::Closed => "Closed",
+            Self::All => "All",
+        }
+    }
+
+    fn matches(self, state: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Open => state == "open",
+            Self::Closed => state == "closed",
+        }
+    }
+}
+
+/// Job list status tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum JobStatus {
+    #[default]
+    All,
+    Started,
+    Succeeded,
+    Failed,
+}
+
+impl JobStatus {
+    const ALL: &[Self] = &[Self::All, Self::Started, Self::Succeeded, Self::Failed];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Started => "Started",
+            Self::Succeeded => "Succeeded",
+            Self::Failed => "Failed",
+        }
+    }
+
+    fn matches(self, status: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Started => status == "started",
+            Self::Succeeded => status == "succeeded",
+            Self::Failed => status == "failed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RepoUi {
     pub tab: Tab,
@@ -45,6 +147,13 @@ pub struct RepoUi {
     pub selected_patch: Option<String>,
     pub selected_issue: Option<String>,
     pub selected_job: Option<String>,
+
+    /// Status tab for the Patches list (Open / Draft / …).
+    pub patch_status: PatchStatus,
+    /// Status tab for the Issues list (Open / Closed / All).
+    pub issue_status: IssueStatus,
+    /// Status tab for the Jobs list.
+    pub job_status: JobStatus,
 
     /// Substring filter for the Patches tab list.
     pub patch_filter: String,
@@ -543,7 +652,21 @@ fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Repo
 fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut RepoUi) {
     title_2(ui, th, "Patches");
     ui.add_space(th.spacing.sm);
-    search_field(ui, th, &mut state.patch_filter, "Search title, id, author, state…");
+    status_tabs(ui, th, PatchStatus::ALL, state.patch_status, |s| {
+        if state.patch_status != s {
+            state.patch_status = s;
+            if let Some(id) = state.selected_patch.as_deref() {
+                let keep = patches
+                    .iter()
+                    .any(|p| p.id == id && s.matches(&p.state));
+                if !keep {
+                    state.selected_patch = None;
+                }
+            }
+        }
+    });
+    ui.add_space(th.spacing.sm);
+    search_field(ui, th, &mut state.patch_filter, "Search title, id, author…");
     ui.add_space(th.spacing.sm);
 
     if patches.is_empty() {
@@ -551,26 +674,35 @@ fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut R
         return;
     }
 
+    let status = state.patch_status;
     let q = state.patch_filter.trim().to_lowercase();
+    let in_status = patches.iter().filter(|p| status.matches(&p.state)).count();
     let filtered: Vec<&PatchRow> = patches
         .iter()
-        .filter(|p| patch_matches(p, &q))
+        .filter(|p| status.matches(&p.state) && patch_matches(p, &q))
         .collect();
 
-    if !q.is_empty() {
+    dim_label(
+        ui,
+        th,
+        &format!("{} of {} {}", filtered.len(), in_status, status.label().to_lowercase()),
+    );
+    ui.add_space(th.spacing.xs);
+    if filtered.is_empty() {
         dim_label(
             ui,
             th,
-            &format!("{} of {} patches", filtered.len(), patches.len()),
+            if q.is_empty() {
+                "(none)"
+            } else {
+                "No patches match this search."
+            },
         );
-        ui.add_space(th.spacing.xs);
-    }
-    if filtered.is_empty() {
-        dim_label(ui, th, "No patches match this search.");
         return;
     }
 
     // Clone ids so we can mutate selection without borrow fights.
+    let show_state = status == PatchStatus::All;
     let rows: Vec<(String, String, String, String)> = filtered
         .iter()
         .map(|p| {
@@ -586,7 +718,11 @@ fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut R
     fill_scroll(ui, "tab_patches", false, |ui| {
         for (id, state_label, title, meta) in rows {
             let selected = state.selected_patch.as_deref() == Some(id.as_str());
-            let label = format!("[{state_label}] {title}");
+            let label = if show_state {
+                format!("[{state_label}] {title}")
+            } else {
+                title
+            };
             let response = selectable_row(ui, th, &label, selected, false, true);
             if response.clicked() {
                 state.selected_patch = Some(id);
@@ -646,7 +782,21 @@ fn patch_detail(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &Rep
 fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut RepoUi) {
     title_2(ui, th, "Issues");
     ui.add_space(th.spacing.sm);
-    search_field(ui, th, &mut state.issue_filter, "Search title, id, author, state…");
+    status_tabs(ui, th, IssueStatus::ALL, state.issue_status, |s| {
+        if state.issue_status != s {
+            state.issue_status = s;
+            if let Some(id) = state.selected_issue.as_deref() {
+                let keep = issues
+                    .iter()
+                    .any(|i| i.id == id && s.matches(&i.state));
+                if !keep {
+                    state.selected_issue = None;
+                }
+            }
+        }
+    });
+    ui.add_space(th.spacing.sm);
+    search_field(ui, th, &mut state.issue_filter, "Search title, id, author…");
     ui.add_space(th.spacing.sm);
 
     if issues.is_empty() {
@@ -654,25 +804,34 @@ fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut Re
         return;
     }
 
+    let status = state.issue_status;
     let q = state.issue_filter.trim().to_lowercase();
+    let in_status = issues.iter().filter(|i| status.matches(&i.state)).count();
     let filtered: Vec<&IssueRow> = issues
         .iter()
-        .filter(|i| issue_matches(i, &q))
+        .filter(|i| status.matches(&i.state) && issue_matches(i, &q))
         .collect();
 
-    if !q.is_empty() {
+    dim_label(
+        ui,
+        th,
+        &format!("{} of {} {}", filtered.len(), in_status, status.label().to_lowercase()),
+    );
+    ui.add_space(th.spacing.xs);
+    if filtered.is_empty() {
         dim_label(
             ui,
             th,
-            &format!("{} of {} issues", filtered.len(), issues.len()),
+            if q.is_empty() {
+                "(none)"
+            } else {
+                "No issues match this search."
+            },
         );
-        ui.add_space(th.spacing.xs);
-    }
-    if filtered.is_empty() {
-        dim_label(ui, th, "No issues match this search.");
         return;
     }
 
+    let show_state = status == IssueStatus::All;
     let rows: Vec<(String, String, String, String)> = filtered
         .iter()
         .map(|issue| {
@@ -697,7 +856,11 @@ fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut Re
     fill_scroll(ui, "tab_issues", false, |ui| {
         for (id, state_label, title, meta) in rows {
             let selected = state.selected_issue.as_deref() == Some(id.as_str());
-            let label = format!("[{state_label}] {title}");
+            let label = if show_state {
+                format!("[{state_label}] {title}")
+            } else {
+                title
+            };
             let response = selectable_row(ui, th, &label, selected, false, true);
             if response.clicked() {
                 state.selected_issue = Some(id);
@@ -792,23 +955,49 @@ fn jobs_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi
 
 fn job_list(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &mut RepoUi) {
     title_2(ui, th, "Jobs");
+    ui.add_space(th.spacing.sm);
+    status_tabs(ui, th, JobStatus::ALL, state.job_status, |s| {
+        if state.job_status != s {
+            state.job_status = s;
+            if let Some(id) = state.selected_job.as_deref() {
+                let keep = jobs.iter().any(|j| j.id == id && s.matches(&j.status));
+                if !keep {
+                    state.selected_job = None;
+                }
+            }
+        }
+    });
     ui.add_space(th.spacing.md);
     if jobs.is_empty() {
         dim_label(ui, th, "(no job COBs)");
         return;
     }
-    fill_scroll(ui, "tab_jobs", false, |ui| {
-        for job in jobs {
-            let selected = state.selected_job.as_deref() == Some(job.id.as_str());
-            let label = format!("[{}] {}", job.status, job.short_id);
-            let response = selectable_row(ui, th, &label, selected, false, true);
-            if response.clicked() {
-                state.selected_job = Some(job.id.clone());
-            }
-            dim_label(
-                ui,
-                th,
-                &format!(
+
+    let status = state.job_status;
+    let filtered: Vec<&JobRow> = jobs
+        .iter()
+        .filter(|j| status.matches(&j.status))
+        .collect();
+    dim_label(
+        ui,
+        th,
+        &format!("{} of {} {}", filtered.len(), jobs.len(), status.label().to_lowercase()),
+    );
+    ui.add_space(th.spacing.xs);
+    if filtered.is_empty() {
+        dim_label(ui, th, "(none)");
+        return;
+    }
+
+    let show_status = status == JobStatus::All;
+    let rows: Vec<(String, String, String, String)> = filtered
+        .iter()
+        .map(|job| {
+            (
+                job.id.clone(),
+                job.status.clone(),
+                job.short_id.clone(),
+                format!(
                     "commit {} · {} run{} · {} node{}",
                     job.short_commit,
                     job.run_count,
@@ -816,10 +1005,65 @@ fn job_list(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &mut RepoUi) 
                     job.node_count,
                     if job.node_count == 1 { "" } else { "s" }
                 ),
-            );
+            )
+        })
+        .collect();
+
+    fill_scroll(ui, "tab_jobs", false, |ui| {
+        for (id, status_label, short_id, meta) in rows {
+            let selected = state.selected_job.as_deref() == Some(id.as_str());
+            let label = if show_status {
+                format!("[{status_label}] {short_id}")
+            } else {
+                short_id
+            };
+            let response = selectable_row(ui, th, &label, selected, false, true);
+            if response.clicked() {
+                state.selected_job = Some(id);
+            }
+            dim_label(ui, th, &meta);
             ui.add_space(th.spacing.sm);
         }
     });
+}
+
+fn status_tabs<S: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    statuses: &[S],
+    active: S,
+    mut on_select: impl FnMut(S),
+) where
+    S: StatusTab,
+{
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = th.spacing.sm;
+        for &s in statuses {
+            tab_btn(ui, th, active == s, s.label(), || on_select(s));
+        }
+    });
+}
+
+trait StatusTab {
+    fn label(self) -> &'static str;
+}
+
+impl StatusTab for PatchStatus {
+    fn label(self) -> &'static str {
+        PatchStatus::label(self)
+    }
+}
+
+impl StatusTab for IssueStatus {
+    fn label(self) -> &'static str {
+        IssueStatus::label(self)
+    }
+}
+
+impl StatusTab for JobStatus {
+    fn label(self) -> &'static str {
+        JobStatus::label(self)
+    }
 }
 
 fn job_detail(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &RepoUi) {
