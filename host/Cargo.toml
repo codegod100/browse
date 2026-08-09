@@ -1,0 +1,29 @@
+[package]
+name = "browse-host"
+version = "0.1.0"
+edition = "2021"
+description = "Browse — desktop window host"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[[bin]]
+name = "browse"
+path = "src/main.rs"
+
+[dependencies]
+browse = { path = "../android" }
+# Host needs winit backends; android package only enables glow in its base deps.
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }

@@ -19,7 +19,7 @@ use crate::rad::{self, RepoSummary};
 
 const TOAST_SECS: u64 = 2;
 
-pub fn run(initial_rid: Option<String>) -> eframe::Result {
+pub fn run_desktop(initial_rid: Option<String>) -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([960.0, 720.0])
@@ -31,6 +31,21 @@ pub fn run(initial_rid: Option<String>) -> eframe::Result {
         "Browse",
         options,
         Box::new(move |cc| Ok(Box::new(BrowseApp::new(cc, initial_rid)))),
+    )
+}
+
+/// Android NativeActivity entry.
+#[cfg(target_os = "android")]
+pub fn run_android(android_app: winit::platform::android::activity::AndroidApp) -> eframe::Result {
+    let mut options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_title("Browse"),
+        ..Default::default()
+    };
+    options.android_app = Some(android_app);
+    eframe::run_native(
+        "Browse",
+        options,
+        Box::new(|cc| Ok(Box::new(BrowseApp::new(cc, None)))),
     )
 }
 
