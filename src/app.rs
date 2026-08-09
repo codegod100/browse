@@ -8,7 +8,8 @@ use eframe::egui::{
 };
 use radicle::Profile;
 use vidya::{
-    apply_dark, body, card, central_page, dim_label, paint_icon_in, primary_button, Icon, Theme,
+    apply_dark, body, card, dim_label, grid_cols_with, paint_icon_in, primary_button, ColSpec,
+    GridOpts, Icon, Theme,
 };
 
 use crate::components::{RepoList, RepoUi};
@@ -180,113 +181,131 @@ impl eframe::App for BrowseApp {
             }
         }
 
-        central_page(ctx, &th, "browse", |g| {
-            g.section(|ui| {
-                if self.profile.is_none() {
-                    dim_label(ui, &th, "Could not load ~/.radicle profile.");
-                    if let Some(err) = &self.err {
-                        body(ui, &th, err);
-                    }
-                    return;
-                }
-
-                let mut enter_open = false;
-                let mut btn_open = false;
-                let mut copy_rid = false;
-
-                let h = th.spacing.control_height;
-                let row_w = ui.available_width().max(1.0);
-                ui.allocate_ui_with_layout(
-                    Vec2::new(row_w, h),
-                    Layout::right_to_left(Align::Center),
-                    |ui| {
-                        ui.set_min_height(h);
-                        ui.set_max_height(h);
-                        if primary_button(ui, &th, "Open").clicked() {
-                            btn_open = true;
-                        }
-                        ui.add_space(th.spacing.sm);
-
-                        let rest = ui.available_width().max(1.0);
-                        ui.allocate_ui_with_layout(
-                            Vec2::new(rest, h),
-                            Layout::left_to_right(Align::Center),
-                            |ui| {
-                                ui.set_min_height(h);
-                                ui.set_max_height(h);
-                                ui.spacing_mut().item_spacing.x = th.spacing.sm;
-                                ui.label("RID");
-                                let field = rid_input_field(ui, &th, &mut self.rid_input, h);
-                                if field.copy_clicked {
-                                    copy_rid = true;
-                                }
-                                if field.enter {
-                                    enter_open = true;
-                                }
-                            },
-                        );
-                    },
-                );
-
-                if copy_rid {
-                    let rid = self.rid_input.trim();
-                    if !rid.is_empty() {
-                        ui.ctx().copy_text(rid.to_string());
-                        self.show_toast("RID copied");
-                    }
-                }
-                if enter_open || btn_open {
-                    self.open_current();
-                    return;
-                }
-                ui.add_space(th.spacing.sm);
-
-                let Some(model) = self.model else {
-                    if let Some(err) = &self.err {
-                        dim_label(ui, &th, err);
-                    }
-                    return;
-                };
-
-                // Startup: local inventory under the RID row.
-                if model == 0 {
-                    let mut clicked = None;
-                    card(ui, &th, |ui| {
-                        clicked =
-                            RepoList::show(ui, &th, &self.local_repos, &mut self.repo_filter);
-                    });
-                    if let Some(rid) = clicked {
-                        self.rid_input = rid;
-                        self.open_current();
-                        return;
-                    }
-                    if let Some(err) = &self.err {
-                        ui.add_space(th.spacing.sm);
-                        dim_label(ui, &th, err);
-                    }
-                    return;
-                }
-
-                let PaintResult {
-                    pending_msg,
-                    error,
-                } = gleam_bridge::paint(
+        // Fixed central shell (no page ScrollArea): fill-height lists/panes own
+        // scrolling so we do not nest solid gutters (double scrollbar).
+        egui::CentralPanel::default()
+            .frame(th.page_frame())
+            .show(ctx, |ui| {
+                grid_cols_with(
                     ui,
                     &th,
-                    model,
-                    &self.slots,
-                    &mut self.repo_ui,
-                    self.profile.as_ref(),
-                );
+                    "browse",
+                    &[ColSpec::Flex],
+                    GridOpts::page(&th),
+                    |g| {
+                        g.section(|ui| {
+                            if self.profile.is_none() {
+                                dim_label(ui, &th, "Could not load ~/.radicle profile.");
+                                if let Some(err) = &self.err {
+                                    body(ui, &th, err);
+                                }
+                                return;
+                            }
 
-                if let Some(err) = error {
-                    self.err = Some(err);
-                }
-                if let Some(msg) = pending_msg {
-                    self.handle_msg(msg);
-                }
+                            let mut enter_open = false;
+                            let mut btn_open = false;
+                            let mut copy_rid = false;
+
+                            let h = th.spacing.control_height;
+                            let row_w = ui.available_width().max(1.0);
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(row_w, h),
+                                Layout::right_to_left(Align::Center),
+                                |ui| {
+                                    ui.set_min_height(h);
+                                    ui.set_max_height(h);
+                                    if primary_button(ui, &th, "Open").clicked() {
+                                        btn_open = true;
+                                    }
+                                    ui.add_space(th.spacing.sm);
+
+                                    let rest = ui.available_width().max(1.0);
+                                    ui.allocate_ui_with_layout(
+                                        Vec2::new(rest, h),
+                                        Layout::left_to_right(Align::Center),
+                                        |ui| {
+                                            ui.set_min_height(h);
+                                            ui.set_max_height(h);
+                                            ui.spacing_mut().item_spacing.x = th.spacing.sm;
+                                            ui.label("RID");
+                                            let field =
+                                                rid_input_field(ui, &th, &mut self.rid_input, h);
+                                            if field.copy_clicked {
+                                                copy_rid = true;
+                                            }
+                                            if field.enter {
+                                                enter_open = true;
+                                            }
+                                        },
+                                    );
+                                },
+                            );
+
+                            if copy_rid {
+                                let rid = self.rid_input.trim();
+                                if !rid.is_empty() {
+                                    ui.ctx().copy_text(rid.to_string());
+                                    self.show_toast("RID copied");
+                                }
+                            }
+                            if enter_open || btn_open {
+                                self.open_current();
+                                return;
+                            }
+                            ui.add_space(th.spacing.sm);
+
+                            let Some(model) = self.model else {
+                                if let Some(err) = &self.err {
+                                    dim_label(ui, &th, err);
+                                }
+                                return;
+                            };
+
+                            // Startup: local inventory under the RID row.
+                            if model == 0 {
+                                let mut clicked = None;
+                                card(ui, &th, |ui| {
+                                    clicked = RepoList::show(
+                                        ui,
+                                        &th,
+                                        &self.local_repos,
+                                        &mut self.repo_filter,
+                                    );
+                                });
+                                if let Some(rid) = clicked {
+                                    self.rid_input = rid;
+                                    self.open_current();
+                                    return;
+                                }
+                                if let Some(err) = &self.err {
+                                    ui.add_space(th.spacing.sm);
+                                    dim_label(ui, &th, err);
+                                }
+                                return;
+                            }
+
+                            let PaintResult {
+                                pending_msg,
+                                error,
+                            } = gleam_bridge::paint(
+                                ui,
+                                &th,
+                                model,
+                                &self.slots,
+                                &mut self.repo_ui,
+                                self.profile.as_ref(),
+                            );
+
+                            if let Some(err) = error {
+                                self.err = Some(err);
+                            }
+                            if let Some(msg) = pending_msg {
+                                self.handle_msg(msg);
+                            }
+                        });
+                    },
+                );
             });
-        });
 
         paint_toast(ctx, &th, self.toast.as_ref().map(|(m, _)| m.as_str()));
     }
