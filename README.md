@@ -1,6 +1,6 @@
 # Browse
 
-Minimal Radicle repo viewer: paste a `rad:z…` ID (or pass it on the CLI) and see name, description, README, and root tree for a repo already in local storage.
+Minimal Radicle repo viewer: paste a `rad:z…` ID (or pass it on the CLI) and see name, description, files (README opened when present), and commits for a repo already in local storage.
 
 **Stack:** [Vidya](https://tangled.org/nandi.uk/vidya) (egui shell) · Gleam TEA guest (screens / layout opcodes) · [`radicle`](https://app.radicle.xyz) crates (Profile + storage).
 
@@ -18,12 +18,19 @@ nix build            # hermetic binary (uses gleam/browse/prebuilt/browse.wasm)
 
 Needs a local Radicle profile with the repo seeded. Live Gleam rebuilds use a wasm-capable Gleam (`~/code/gleam` on branch `wasm`); `nix build` falls back to the vendored prebuilt Wasm.
 
+## View API
+
+Gleam builds screens with view helpers in [`gleam/browse/src/browse.gleam`](gleam/browse/src/browse.gleam) (`header`, `md_body`, `file_list`, `commit_list`, …). Those pack to int opcodes; Rust [`src/view_api.rs`](src/view_api.rs) decodes them onto Vidya widgets. Dynamic text/rows live in `ViewModel` (host), not in Wasm.
+
 ## Layout
 
 | Path | Role |
 |------|------|
-| `gleam/browse/` | Gleam model / update / view opcodes |
+| `gleam/browse/src/browse.gleam` | TEA + view DSL → opcodes |
+| `src/components/` | Meta, Readme, RepoBrowser (Files/Commits tabs) |
+| `src/view_api.rs` | Host paint API (`Op` / `ViewModel` → components) |
+| `src/markdown.rs` | README via pulldown-cmark → Vidya text |
 | `src/rad.rs` | `Profile::load` + open by RID → snapshot |
 | `src/gleam_guest.rs` | wasmtime + `browse__*` exports |
-| `src/gleam_bridge.rs` | opcodes → Vidya widgets (+ string slots) |
+| `src/gleam_bridge.rs` | opcode fetch → `view_api` |
 | `src/app.rs` | window, RID field, Open effect |

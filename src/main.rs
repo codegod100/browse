@@ -1,9 +1,12 @@
 //! Browse — Radicle repo viewer. Vidya paints; Gleam owns screens; radicle crates load RIDs.
 
 mod app;
+mod components;
 mod gleam_bridge;
 mod gleam_guest;
+mod markdown;
 mod rad;
+mod view_api;
 
 fn main() -> eframe::Result {
     let mut args = std::env::args().skip(1).peekable();
@@ -12,7 +15,9 @@ fn main() -> eframe::Result {
         args.next();
     }
 
-    let rid = args.next().filter(|a| a.starts_with("rad:") || a.starts_with('z'));
+    let rid = args
+        .next()
+        .filter(|a| a.starts_with("rad:") || a.starts_with('z'));
     let rid = rid.map(|a| {
         if a.starts_with("rad:") {
             a
@@ -39,9 +44,43 @@ fn run_smoke(rid: Option<&str>) -> eframe::Result {
     println!("name:  {}", view.name);
     println!("desc:  {}", view.description);
     println!("head:  {}", view.head);
-    println!("tree:  {} entries", view.tree.len());
-    for e in view.tree.iter().take(12) {
-        println!("  - {e}");
+    println!("files: {} entries", view.files.len());
+    for f in view.files.iter().take(12) {
+        let kind = if f.is_tree { "/" } else { "" };
+        println!("  - {}{kind}", f.name);
+    }
+    println!("commits: {}", view.commits.len());
+    for c in view.commits.iter().take(8) {
+        println!("  {}  {} — {}", c.short_id, c.summary, c.author);
+    }
+    if let Some(c) = view.commits.first() {
+        match rad::commit_paths(&profile, &view.rid, &c.id) {
+            Ok(paths) => {
+                println!("commit {} paths: {}", c.short_id, paths.len());
+                for p in paths.iter().take(6) {
+                    println!("    {p}");
+                }
+                if let Some(p) = paths.first() {
+                    match rad::file_patch(&profile, &view.rid, &c.id, p) {
+                        Ok(diff) => {
+                            let preview: String = diff.chars().take(160).collect();
+                            println!("diff {p} preview:\n{preview}");
+                        }
+                        Err(e) => println!("diff error: {e}"),
+                    }
+                }
+            }
+            Err(e) => println!("paths error: {e}"),
+        }
+    }
+    if let Some(f) = view.files.iter().find(|f| !f.is_tree) {
+        match rad::read_file(&profile, &view.rid, &view.head_oid, &f.name) {
+            Ok(text) => {
+                let preview: String = text.chars().take(80).collect();
+                println!("file {} preview: {preview}", f.name);
+            }
+            Err(e) => println!("file error: {e}"),
+        }
     }
     let preview: String = view.readme.chars().take(200).collect();
     println!("readme preview:\n{preview}");
