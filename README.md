@@ -18,6 +18,8 @@ nix build            # hermetic desktop binary (uses android/gleam/browse/prebui
 
 Needs a local Radicle profile with the repo seeded. Live Gleam rebuilds use a wasm-capable Gleam (`~/code/gleam` on branch `wasm`); `nix build` falls back to the vendored prebuilt Wasm.
 
+Patches / issues / jobs are a local snapshot — they do **not** auto-refresh. Press **Open** again (same RID) or re-press the active **Patches** / **Issues** / **Jobs** tab to reload from local storage.
+
 ## Android APK
 
 ```bash

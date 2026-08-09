@@ -148,6 +148,9 @@ pub struct RepoUi {
     pub selected_issue: Option<String>,
     pub selected_job: Option<String>,
 
+    /// Set when the active Patches / Issues / Jobs tab is pressed again.
+    pub reload_requested: bool,
+
     /// Status tab for the Patches list (Open / Draft / …).
     pub patch_status: PatchStatus,
     /// Status tab for the Issues list (Open / Closed / All).
@@ -169,6 +172,30 @@ impl RepoUi {
             dir_entries: files.to_vec(),
             ..Self::default()
         };
+    }
+
+    /// Drop COB selections that no longer exist after a reload.
+    pub fn prune_cob_selections(
+        &mut self,
+        patches: &[PatchRow],
+        issues: &[IssueRow],
+        jobs: &[JobRow],
+    ) {
+        if let Some(id) = self.selected_patch.as_deref() {
+            if !patches.iter().any(|p| p.id == id) {
+                self.selected_patch = None;
+            }
+        }
+        if let Some(id) = self.selected_issue.as_deref() {
+            if !issues.iter().any(|i| i.id == id) {
+                self.selected_issue = None;
+            }
+        }
+        if let Some(id) = self.selected_job.as_deref() {
+            if !jobs.iter().any(|j| j.id == id) {
+                self.selected_job = None;
+            }
+        }
     }
 
     fn join_cwd(&self, name: &str) -> String {
@@ -292,25 +319,58 @@ impl RepoBrowser {
         profile: Option<&Profile>,
     ) {
         ui.horizontal(|ui| {
-            tab_btn(ui, th, state.tab == Tab::Files, "Files", || {
+            tab_btn(ui, th, state.tab == Tab::Files, "Files", None, || {
                 state.tab = Tab::Files;
             });
             ui.add_space(th.spacing.sm);
-            tab_btn(ui, th, state.tab == Tab::Commits, "Commits", || {
+            tab_btn(ui, th, state.tab == Tab::Commits, "Commits", None, || {
                 state.tab = Tab::Commits;
             });
             ui.add_space(th.spacing.sm);
-            tab_btn(ui, th, state.tab == Tab::Patches, "Patches", || {
-                state.tab = Tab::Patches;
-            });
+            tab_btn(
+                ui,
+                th,
+                state.tab == Tab::Patches,
+                "Patches",
+                Some("Press again to reload"),
+                || {
+                    if state.tab == Tab::Patches {
+                        state.reload_requested = true;
+                    } else {
+                        state.tab = Tab::Patches;
+                    }
+                },
+            );
             ui.add_space(th.spacing.sm);
-            tab_btn(ui, th, state.tab == Tab::Issues, "Issues", || {
-                state.tab = Tab::Issues;
-            });
+            tab_btn(
+                ui,
+                th,
+                state.tab == Tab::Issues,
+                "Issues",
+                Some("Press again to reload"),
+                || {
+                    if state.tab == Tab::Issues {
+                        state.reload_requested = true;
+                    } else {
+                        state.tab = Tab::Issues;
+                    }
+                },
+            );
             ui.add_space(th.spacing.sm);
-            tab_btn(ui, th, state.tab == Tab::Jobs, "Jobs", || {
-                state.tab = Tab::Jobs;
-            });
+            tab_btn(
+                ui,
+                th,
+                state.tab == Tab::Jobs,
+                "Jobs",
+                Some("Press again to reload"),
+                || {
+                    if state.tab == Tab::Jobs {
+                        state.reload_requested = true;
+                    } else {
+                        state.tab = Tab::Jobs;
+                    }
+                },
+            );
         });
         ui.add_space(th.spacing.md);
 
@@ -324,11 +384,23 @@ impl RepoBrowser {
     }
 }
 
-fn tab_btn(ui: &mut egui::Ui, th: &Theme, active: bool, label: &str, on: impl FnOnce()) {
+fn tab_btn(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    active: bool,
+    label: &str,
+    hover: Option<&str>,
+    on: impl FnOnce(),
+) {
     let response = if active {
         primary_button(ui, th, label)
     } else {
         button(ui, th, label)
+    };
+    let response = if let Some(tip) = hover.filter(|_| active) {
+        response.on_hover_text(tip)
+    } else {
+        response
     };
     if response.clicked() {
         on();
@@ -1039,7 +1111,7 @@ fn status_tabs<S: Copy + PartialEq>(
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = th.spacing.sm;
         for &s in statuses {
-            tab_btn(ui, th, active == s, s.label(), || on_select(s));
+            tab_btn(ui, th, active == s, s.label(), None, || on_select(s));
         }
     });
 }
