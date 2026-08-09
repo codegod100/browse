@@ -19,6 +19,7 @@ pub struct ViewModel {
     pub commits: Vec<CommitRow>,
     pub patches: Vec<PatchRow>,
     pub issues: Vec<IssueRow>,
+    pub jobs: Vec<JobRow>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +64,28 @@ pub struct IssueRow {
     pub updated_ms: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct JobRunRow {
+    pub node: String,
+    pub run_id: String,
+    pub status: String,
+    pub log: String,
+    pub timestamp_secs: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobRow {
+    pub id: String,
+    pub short_id: String,
+    pub commit: String,
+    pub short_commit: String,
+    pub status: String,
+    pub run_count: usize,
+    pub node_count: usize,
+    pub updated_secs: u64,
+    pub runs: Vec<JobRunRow>,
+}
+
 /// Decoded view op (Gleam → host).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Op {
@@ -88,7 +111,7 @@ pub enum Op {
     MdBody(usize),
     FileList(usize),
     CommitList(usize),
-    /// Files / Commits / Patches / Issues tabs browser.
+    /// Files / Commits / Patches / Issues / Jobs tabs browser.
     RepoTabs,
     Unknown(i64),
 }
@@ -142,6 +165,7 @@ pub fn vocab(code: i64) -> &'static str {
         8 => "Commits",
         9 => "Patches",
         10 => "Issues",
+        11 => "Jobs",
         _ => "?",
     }
 }

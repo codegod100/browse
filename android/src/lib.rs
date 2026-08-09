@@ -48,6 +48,13 @@ pub fn run_smoke(rid: Option<&str>) -> eframe::Result {
             i.state, i.short_id, i.title, i.author
         );
     }
+    println!("jobs: {}", view.jobs.len());
+    for j in view.jobs.iter().take(8) {
+        println!(
+            "  [{}] {}  commit {} — {} run(s)",
+            j.status, j.short_id, j.short_commit, j.run_count
+        );
+    }
     if let Some(c) = view.commits.first() {
         match rad::commit_paths(&profile, &view.rid, &c.id) {
             Ok(paths) => {

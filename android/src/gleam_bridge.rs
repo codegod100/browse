@@ -34,6 +34,7 @@ impl ViewModel {
             commits: v.commits.clone(),
             patches: v.patches.clone(),
             issues: v.issues.clone(),
+            jobs: v.jobs.clone(),
         }
     }
 
@@ -51,6 +52,7 @@ impl ViewModel {
             commits: Vec::new(),
             patches: Vec::new(),
             issues: Vec::new(),
+            jobs: Vec::new(),
         }
     }
 }
