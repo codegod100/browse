@@ -45,7 +45,8 @@ struct BrowseApp {
     local_repos: Vec<RepoSummary>,
     err: Option<String>,
     auto_open: bool,
-    toast: Option<(String, Instant)>,
+    /// Toast message, show time, and optional anchor (screen pos of the source chip).
+    toast: Option<(String, Instant, Option<egui::Pos2>)>,
 }
 
 impl BrowseApp {
@@ -86,8 +87,13 @@ impl BrowseApp {
         }
     }
 
+    #[allow(dead_code)] // bottom-center toasts for non-chip messages
     fn show_toast(&mut self, msg: impl Into<String>) {
-        self.toast = Some((msg.into(), Instant::now()));
+        self.toast = Some((msg.into(), Instant::now(), None));
+    }
+
+    fn show_toast_at(&mut self, msg: impl Into<String>, at: egui::Pos2) {
+        self.toast = Some((msg.into(), Instant::now(), Some(at)));
     }
 
     fn refresh_local_repos(&mut self) {
@@ -166,7 +172,7 @@ impl eframe::App for BrowseApp {
         apply_dark(ctx);
         let th = self.theme.clone();
 
-        if let Some((_, at)) = &self.toast {
+        if let Some((_, at, _)) = &self.toast {
             if at.elapsed() > Duration::from_secs(TOAST_SECS) {
                 self.toast = None;
             } else {
@@ -204,7 +210,7 @@ impl eframe::App for BrowseApp {
 
                             let mut enter_open = false;
                             let mut btn_open = false;
-                            let mut copy_rid = false;
+                            let mut copy_rid_at = None;
 
                             let h = th.spacing.control_height;
                             let row_w = ui.available_width().max(1.0);
@@ -230,8 +236,8 @@ impl eframe::App for BrowseApp {
                                             ui.label("RID");
                                             let field =
                                                 rid_input_field(ui, &th, &mut self.rid_input, h);
-                                            if field.copy_clicked {
-                                                copy_rid = true;
+                                            if let Some(at) = field.copy_clicked_at {
+                                                copy_rid_at = Some(at);
                                             }
                                             if field.enter {
                                                 enter_open = true;
@@ -241,11 +247,11 @@ impl eframe::App for BrowseApp {
                                 },
                             );
 
-                            if copy_rid {
+                            if let Some(at) = copy_rid_at {
                                 let rid = self.rid_input.trim();
                                 if !rid.is_empty() {
                                     ui.ctx().copy_text(rid.to_string());
-                                    self.show_toast("RID copied");
+                                    self.show_toast_at("RID copied", at);
                                 }
                             }
                             if enter_open || btn_open {
@@ -307,44 +313,59 @@ impl eframe::App for BrowseApp {
                 );
             });
 
-        paint_toast(ctx, &th, self.toast.as_ref().map(|(m, _)| m.as_str()));
+        paint_toast(
+            ctx,
+            &th,
+            self.toast
+                .as_ref()
+                .map(|(m, _, at)| (m.as_str(), *at)),
+        );
     }
 }
 
-fn paint_toast(ctx: &egui::Context, th: &Theme, msg: Option<&str>) {
-    let Some(msg) = msg else {
+fn paint_toast(ctx: &egui::Context, th: &Theme, toast: Option<(&str, Option<egui::Pos2>)>) {
+    let Some((msg, anchor)) = toast else {
         return;
     };
-    egui::Area::new(egui::Id::new("toast"))
-        .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -24.0])
+    // Prefer anchoring just under the source chip; fall back to bottom-center.
+    let mut area = egui::Area::new(egui::Id::new("toast"))
         .order(egui::Order::Foreground)
-        .show(ctx, |ui| {
-            Frame::new()
-                .fill(th.palette.popover_bg)
-                .stroke(Stroke::new(1.0_f32, th.palette.border))
-                .corner_radius(th.spacing.radius_md)
-                .inner_margin(Margin::symmetric(
-                    th.spacing.lg as i8,
-                    th.spacing.md as i8,
-                ))
-                .shadow(Shadow {
-                    offset: [0, 4],
-                    blur: 12,
-                    spread: 0,
-                    color: th.palette.shade,
-                })
-                .show(ui, |ui| {
-                    ui.label(
-                        RichText::new(msg)
-                            .size(th.type_scale.body)
-                            .color(th.palette.text),
-                    );
-                });
-        });
+        .interactable(false);
+    area = if let Some(at) = anchor {
+        let gap = th.spacing.xs;
+        area.pivot(egui::Align2::CENTER_TOP)
+            .fixed_pos(egui::pos2(at.x, at.y + gap))
+    } else {
+        area.anchor(egui::Align2::CENTER_BOTTOM, [0.0, -24.0])
+    };
+    area.show(ctx, |ui| {
+        Frame::new()
+            .fill(th.palette.popover_bg)
+            .stroke(Stroke::new(1.0_f32, th.palette.border))
+            .corner_radius(th.spacing.radius_md)
+            .inner_margin(Margin::symmetric(
+                th.spacing.lg as i8,
+                th.spacing.md as i8,
+            ))
+            .shadow(Shadow {
+                offset: [0, 4],
+                blur: 12,
+                spread: 0,
+                color: th.palette.shade,
+            })
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(msg)
+                        .size(th.type_scale.body)
+                        .color(th.palette.text),
+                );
+            });
+    });
 }
 
 struct RidFieldResult {
-    copy_clicked: bool,
+    /// Screen position of the copy chip when clicked (bottom-center of icon).
+    copy_clicked_at: Option<egui::Pos2>,
     enter: bool,
 }
 
@@ -356,7 +377,7 @@ fn rid_input_field(
     h: f32,
 ) -> RidFieldResult {
     let mut out = RidFieldResult {
-        copy_clicked: false,
+        copy_clicked_at: None,
         enter: false,
     };
 
@@ -387,7 +408,8 @@ fn rid_input_field(
     };
     paint_icon_in(ui, icon_rect.shrink(icon_hit * 0.22), Icon::Copy, icon_color);
     if icon_r.clicked() {
-        out.copy_clicked = true;
+        // Anchor under the chip (bottom center), not the icon midpoint.
+        out.copy_clicked_at = Some(egui::pos2(icon_rect.center().x, icon_rect.bottom()));
     }
 
     let edit_rect = egui::Rect::from_min_max(
