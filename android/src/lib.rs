@@ -6,6 +6,7 @@ mod gleam_bridge;
 mod gleam_guest;
 mod markdown;
 mod rad;
+mod recent;
 mod view_api;
 
 pub use app::run_desktop;

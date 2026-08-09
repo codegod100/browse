@@ -16,6 +16,7 @@ use crate::components::{RepoList, RepoUi};
 use crate::gleam_bridge::{self, PaintResult, Slots, MSG_BACK, MSG_FAILED, MSG_LOADED, MSG_OPEN};
 use crate::gleam_guest;
 use crate::rad::{self, RepoSummary};
+use crate::recent::{self, RecentRepo};
 
 const TOAST_SECS: u64 = 2;
 
@@ -58,6 +59,7 @@ struct BrowseApp {
     slots: Slots,
     repo_ui: RepoUi,
     local_repos: Vec<RepoSummary>,
+    recent_repos: Vec<RecentRepo>,
     err: Option<String>,
     auto_open: bool,
     /// Toast message, show time, and optional anchor (screen pos of the source chip).
@@ -86,6 +88,7 @@ impl BrowseApp {
 
         let auto_open = initial_rid.is_some();
         let err = profile_err.or(model_err);
+        let recent_repos = recent::load();
 
         Self {
             theme,
@@ -96,6 +99,7 @@ impl BrowseApp {
             slots: Slots::default(),
             repo_ui: RepoUi::default(),
             local_repos,
+            recent_repos,
             err,
             auto_open,
             toast: None,
@@ -138,6 +142,13 @@ impl BrowseApp {
                 self.repo_ui.open_readme_if_present(profile, &view.files);
                 self.slots = Slots::from_view(&view);
                 self.err = None;
+                recent::record(
+                    &mut self.recent_repos,
+                    &view.rid,
+                    &view.name,
+                    &view.description,
+                );
+                recent::save(&self.recent_repos);
                 if let Some(m) = self.model {
                     match gleam_guest::update(m, MSG_LOADED) {
                         Ok(n) => self.model = Some(n),
@@ -282,13 +293,14 @@ impl eframe::App for BrowseApp {
                                 return;
                             };
 
-                            // Startup: local inventory under the RID row.
+                            // Startup: recently viewed + local inventory under the RID row.
                             if model == 0 {
                                 let mut clicked = None;
                                 card(ui, &th, |ui| {
                                     clicked = RepoList::show(
                                         ui,
                                         &th,
+                                        &self.recent_repos,
                                         &self.local_repos,
                                         &mut self.repo_filter,
                                     );
