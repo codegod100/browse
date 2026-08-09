@@ -12,11 +12,12 @@ use vidya::{
     GridOpts, Icon, Theme,
 };
 
-use crate::components::{RepoList, RepoUi};
+use crate::components::{RepoList, RepoUi, Tab};
 use crate::gleam_bridge::{self, PaintResult, Slots, MSG_BACK, MSG_FAILED, MSG_LOADED, MSG_OPEN};
 use crate::gleam_guest;
 use crate::rad::{self, RepoSummary};
 use crate::recent::{self, RecentRepo};
+use crate::tab_prefs::{self, TabPrefsStore};
 
 const TOAST_SECS: u64 = 2;
 
@@ -60,6 +61,7 @@ struct BrowseApp {
     repo_ui: RepoUi,
     local_repos: Vec<RepoSummary>,
     recent_repos: Vec<RecentRepo>,
+    tab_prefs: TabPrefsStore,
     err: Option<String>,
     auto_open: bool,
     /// Toast message, show time, and optional anchor (screen pos of the source chip).
@@ -89,6 +91,7 @@ impl BrowseApp {
         let auto_open = initial_rid.is_some();
         let err = profile_err.or(model_err);
         let recent_repos = recent::load();
+        let tab_prefs = tab_prefs::load();
 
         Self {
             theme,
@@ -100,6 +103,7 @@ impl BrowseApp {
             repo_ui: RepoUi::default(),
             local_repos,
             recent_repos,
+            tab_prefs,
             err,
             auto_open,
             toast: None,
@@ -151,7 +155,7 @@ impl BrowseApp {
                     self.show_toast("Reloaded");
                 } else {
                     self.repo_ui.reset_for(&view.rid, &view.head_oid, &view.files);
-                    self.repo_ui.open_readme_if_present(profile, &view.files);
+                    restore_tab_prefs(&mut self.repo_ui, &self.tab_prefs, profile, &view.files);
                     self.slots = Slots::from_view(&view);
                     self.err = None;
                     if let Some(m) = self.model {
@@ -235,6 +239,16 @@ impl BrowseApp {
         }
     }
 
+    /// Restore last Files/Commits/Patches/Issues/Jobs tab (+ status filters) for this RID.
+    fn persist_tab_prefs_if_dirty(&mut self) {
+        if !self.repo_ui.prefs_dirty || self.repo_ui.rid.is_empty() {
+            return;
+        }
+        tab_prefs::record(&mut self.tab_prefs, tab_prefs::from_ui(&self.repo_ui));
+        tab_prefs::save(&self.tab_prefs);
+        self.repo_ui.prefs_dirty = false;
+    }
+
     fn handle_msg(&mut self, msg: i64) {
         if msg == MSG_OPEN {
             self.open_current();
@@ -245,6 +259,14 @@ impl BrowseApp {
                 Ok(n) => {
                     // Back to enter — refresh inventory and clear RID.
                     if msg == MSG_BACK || n == 0 {
+                        if !self.repo_ui.rid.is_empty() {
+                            tab_prefs::record(
+                                &mut self.tab_prefs,
+                                tab_prefs::from_ui(&self.repo_ui),
+                            );
+                            tab_prefs::save(&self.tab_prefs);
+                            self.repo_ui.prefs_dirty = false;
+                        }
                         self.refresh_local_repos();
                         self.rid_input.clear();
                         self.repo_filter.clear();
@@ -404,6 +426,7 @@ impl eframe::App for BrowseApp {
                                 self.reload_current();
                                 return;
                             }
+                            self.persist_tab_prefs_if_dirty();
                             if let Some(msg) = pending_msg {
                                 self.handle_msg(msg);
                             }
@@ -419,6 +442,23 @@ impl eframe::App for BrowseApp {
                 .as_ref()
                 .map(|(m, _, at)| (m.as_str(), *at)),
         );
+    }
+}
+
+fn restore_tab_prefs(
+    ui: &mut RepoUi,
+    store: &TabPrefsStore,
+    profile: &Profile,
+    files: &[crate::view_api::FileRow],
+) {
+    if let Some(prefs) = tab_prefs::get(store, &ui.rid).cloned() {
+        tab_prefs::apply_to_ui(&prefs, ui);
+        ui.prefs_dirty = false;
+        if ui.tab == Tab::Files {
+            ui.open_readme_if_present(profile, files);
+        }
+    } else {
+        ui.open_readme_if_present(profile, files);
     }
 }
 

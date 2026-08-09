@@ -7,6 +7,7 @@ mod gleam_guest;
 mod markdown;
 mod rad;
 mod recent;
+mod tab_prefs;
 mod view_api;
 
 pub use app::run_desktop;

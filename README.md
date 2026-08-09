@@ -20,6 +20,8 @@ Needs a local Radicle profile with the repo seeded. Live Gleam rebuilds use a wa
 
 Patches / issues / jobs are a local snapshot — they do **not** auto-refresh. Press **Open** again (same RID) or re-press the active **Patches** / **Issues** / **Jobs** tab to reload from local storage.
 
+Per-repo browser tab (Files / Commits / Patches / Issues / Jobs) and status filters are remembered in `~/.config/browse/tabs.json` (or `$XDG_CONFIG_HOME/browse/tabs.json`).
+
 ## Android APK
 
 ```bash
@@ -61,3 +63,5 @@ Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.glea
 | `android/src/gleam_guest.rs` | wasmtime + `browse__*` exports |
 | `android/src/gleam_bridge.rs` | opcode fetch → `view_api` |
 | `android/src/app.rs` | window, RID field, Open effect |
+| `android/src/recent.rs` | recently viewed repos (`~/.config/browse/recent.json`) |
+| `android/src/tab_prefs.rs` | per-repo tab + status filters (`~/.config/browse/tabs.json`) |
