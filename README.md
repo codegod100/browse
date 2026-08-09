@@ -30,6 +30,17 @@ Package id: `uk.nandi.browse` (aarch64 / arm64-v8a). Signed with the committed `
 
 Sibling path dep: `android/Cargo.toml` expects `../../vidya` (materialized by the flake for `nix build`, or a live checkout next to this repo).
 
+### CI artifacts (boxci)
+
+On merge to `main`, [boxci](https://boxci.boxd.sh) runs [`.boxci/pipeline.yml`](.boxci/pipeline.yml): clippy/check, then `nix build .#android` on nixbuild.net and publishes `browse.apk`.
+
+```bash
+./scripts/boxci/dispatch-merge.sh            # trigger merge pipeline
+./scripts/boxci/dispatch-merge.sh --sha HEAD # specific SHA
+```
+
+RID: [`rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3`](https://nandi.radicle.garden/rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3). APK step soft-skips if `NIXBUILD_TOKEN` / `OPENBAO_TOKEN` are unset on the boxci host.
+
 ## View API
 
 Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.gleam`](android/gleam/browse/src/browse.gleam) (`header`, `md_body`, `file_list`, `commit_list`, …). Those pack to int opcodes; Rust [`android/src/view_api.rs`](android/src/view_api.rs) decodes them onto Vidya widgets. Dynamic text/rows live in `ViewModel` (host), not in Wasm.
