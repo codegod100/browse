@@ -17,6 +17,76 @@ pub enum Tab {
     Issues,
 }
 
+/// Patch list filter (Radicle patch states + All).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PatchFilter {
+    #[default]
+    Open,
+    Draft,
+    Merged,
+    Archived,
+    All,
+}
+
+impl PatchFilter {
+    const ALL: &[Self] = &[
+        Self::Open,
+        Self::Draft,
+        Self::Merged,
+        Self::Archived,
+        Self::All,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Open",
+            Self::Draft => "Draft",
+            Self::Merged => "Merged",
+            Self::Archived => "Archived",
+            Self::All => "All",
+        }
+    }
+
+    fn matches(self, state: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Open => state == "open",
+            Self::Draft => state == "draft",
+            Self::Merged => state == "merged",
+            Self::Archived => state == "archived",
+        }
+    }
+}
+
+/// Issue list filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IssueFilter {
+    #[default]
+    Open,
+    Closed,
+    All,
+}
+
+impl IssueFilter {
+    const ALL: &[Self] = &[Self::Open, Self::Closed, Self::All];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Open",
+            Self::Closed => "Closed",
+            Self::All => "All",
+        }
+    }
+
+    fn matches(self, state: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Open => state == "open",
+            Self::Closed => state == "closed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RepoUi {
     pub tab: Tab,
@@ -38,7 +108,9 @@ pub struct RepoUi {
     pub diff_text: String,
     pub commit_error: Option<String>,
 
+    pub patch_filter: PatchFilter,
     pub selected_patch: Option<String>,
+    pub issue_filter: IssueFilter,
     pub selected_issue: Option<String>,
 }
 
@@ -528,15 +600,47 @@ fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Repo
 
 fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut RepoUi) {
     title_2(ui, th, "Patches");
+    ui.add_space(th.spacing.sm);
+    filter_tabs(ui, th, PatchFilter::ALL, state.patch_filter, |f| {
+        if state.patch_filter != f {
+            state.patch_filter = f;
+            // Drop selection when it leaves the active filter.
+            if let Some(id) = state.selected_patch.as_deref() {
+                let keep = patches
+                    .iter()
+                    .any(|p| p.id == id && f.matches(&p.state));
+                if !keep {
+                    state.selected_patch = None;
+                }
+            }
+        }
+    });
     ui.add_space(th.spacing.md);
+
+    let filtered: Vec<&PatchRow> = patches
+        .iter()
+        .filter(|p| state.patch_filter.matches(&p.state))
+        .collect();
     if patches.is_empty() {
         dim_label(ui, th, "(no patches)");
         return;
     }
+    if filtered.is_empty() {
+        dim_label(
+            ui,
+            th,
+            &format!("(no {} patches)", state.patch_filter.label().to_lowercase()),
+        );
+        return;
+    }
     fill_scroll(ui, "tab_patches", false, |ui| {
-        for p in patches {
+        for p in filtered {
             let selected = state.selected_patch.as_deref() == Some(p.id.as_str());
-            let label = format!("[{}] {}", p.state, p.title);
+            let label = if state.patch_filter == PatchFilter::All {
+                format!("[{}] {}", p.state, p.title)
+            } else {
+                p.title.clone()
+            };
             let response = selectable_row(ui, th, &label, selected, false, true);
             if response.clicked() {
                 state.selected_patch = Some(p.id.clone());
@@ -595,15 +699,46 @@ fn patch_detail(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &Rep
 
 fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut RepoUi) {
     title_2(ui, th, "Issues");
+    ui.add_space(th.spacing.sm);
+    filter_tabs(ui, th, IssueFilter::ALL, state.issue_filter, |f| {
+        if state.issue_filter != f {
+            state.issue_filter = f;
+            if let Some(id) = state.selected_issue.as_deref() {
+                let keep = issues
+                    .iter()
+                    .any(|i| i.id == id && f.matches(&i.state));
+                if !keep {
+                    state.selected_issue = None;
+                }
+            }
+        }
+    });
     ui.add_space(th.spacing.md);
+
+    let filtered: Vec<&IssueRow> = issues
+        .iter()
+        .filter(|i| state.issue_filter.matches(&i.state))
+        .collect();
     if issues.is_empty() {
         dim_label(ui, th, "(no issues)");
         return;
     }
+    if filtered.is_empty() {
+        dim_label(
+            ui,
+            th,
+            &format!("(no {} issues)", state.issue_filter.label().to_lowercase()),
+        );
+        return;
+    }
     fill_scroll(ui, "tab_issues", false, |ui| {
-        for issue in issues {
+        for issue in filtered {
             let selected = state.selected_issue.as_deref() == Some(issue.id.as_str());
-            let label = format!("[{}] {}", issue.state, issue.title);
+            let label = if state.issue_filter == IssueFilter::All {
+                format!("[{}] {}", issue.state, issue.title)
+            } else {
+                issue.title.clone()
+            };
             let response = selectable_row(ui, th, &label, selected, false, true);
             if response.clicked() {
                 state.selected_issue = Some(issue.id.clone());
@@ -625,6 +760,39 @@ fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut Re
             ui.add_space(th.spacing.sm);
         }
     });
+}
+
+fn filter_tabs<F: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    filters: &[F],
+    active: F,
+    mut on_select: impl FnMut(F),
+) where
+    F: FilterTab,
+{
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = th.spacing.sm;
+        for &f in filters {
+            tab_btn(ui, th, active == f, f.label(), || on_select(f));
+        }
+    });
+}
+
+trait FilterTab {
+    fn label(self) -> &'static str;
+}
+
+impl FilterTab for PatchFilter {
+    fn label(self) -> &'static str {
+        PatchFilter::label(self)
+    }
+}
+
+impl FilterTab for IssueFilter {
+    fn label(self) -> &'static str {
+        IssueFilter::label(self)
+    }
 }
 
 fn issue_detail(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &RepoUi) {
