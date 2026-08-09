@@ -1,6 +1,6 @@
 # Browse
 
-Minimal Radicle repo viewer: paste a `rad:z…` ID (or pass it on the CLI) and see name, description, files (README opened when present), and commits for a repo already in local storage.
+Minimal Radicle repo viewer: paste a `rad:z…` ID (or pass it on the CLI) and see name, description, files (README opened when present), and commits. If the repo is not in local storage yet, **Open** seeds/fetches it from the network and checks out a working copy under `~/code/<name>`.
 
 **Stack:** [Vidya](https://tangled.org/nandi.uk/vidya) (egui shell) · Gleam TEA guest (screens / layout opcodes) · [`radicle`](https://app.radicle.xyz) crates (Profile + storage).
 
@@ -16,7 +16,7 @@ nix run . -- --smoke rad:z1ocacrfUUDHaSpspzjX5bUYf36w
 nix build            # hermetic binary (uses gleam/browse/prebuilt/browse.wasm)
 ```
 
-Needs a local Radicle profile with the repo seeded. Live Gleam rebuilds use a wasm-capable Gleam (`~/code/gleam` on branch `wasm`); `nix build` falls back to the vendored prebuilt Wasm.
+Needs a local Radicle profile (`~/.radicle`). Cloning from the network requires `rad node start`. Live Gleam rebuilds use a wasm-capable Gleam (`~/code/gleam` on branch `wasm`); `nix build` falls back to the vendored prebuilt Wasm.
 
 ## View API
 

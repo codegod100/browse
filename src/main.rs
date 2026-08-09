@@ -36,6 +36,31 @@ fn main() -> eframe::Result {
 fn run_smoke(rid: Option<&str>) -> eframe::Result {
     let profile = rad::load_profile().expect("load profile");
     let rid = rid.expect("usage: browse --smoke rad:z…");
+    match rad::has_local(&profile, rid) {
+        Ok(true) => println!("local: yes"),
+        Ok(false) => {
+            println!("local: no — cloning to storage + ~/code…");
+            match rad::clone_to_local(&profile, rid) {
+                Ok(outcome) => {
+                    println!(
+                        "clone: name={} fetched={} checked_out={} path={}",
+                        outcome.name,
+                        outcome.fetched,
+                        outcome.checked_out,
+                        outcome.path.display()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("clone failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("has_local failed: {e}");
+            std::process::exit(1);
+        }
+    }
     let view = rad::open_repo(&profile, rid).unwrap_or_else(|e| {
         eprintln!("open failed: {e}");
         std::process::exit(1);

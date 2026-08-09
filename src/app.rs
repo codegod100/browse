@@ -1,5 +1,7 @@
 //! Desktop window: RID field + Gleam-driven layout, Radicle fetch on Open.
 
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
@@ -14,9 +16,16 @@ use vidya::{
 use crate::components::{RepoList, RepoUi};
 use crate::gleam_bridge::{self, PaintResult, Slots, MSG_BACK, MSG_FAILED, MSG_LOADED, MSG_OPEN};
 use crate::gleam_guest;
-use crate::rad::{self, RepoSummary};
+use crate::rad::{self, CloneOutcome, RepoSummary};
 
 const TOAST_SECS: u64 = 2;
+
+enum PendingClone {
+    Idle,
+    Working {
+        rx: Receiver<Result<CloneOutcome, String>>,
+    },
+}
 
 pub fn run(initial_rid: Option<String>) -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -44,6 +53,8 @@ struct BrowseApp {
     err: Option<String>,
     auto_open: bool,
     toast: Option<(String, Instant)>,
+    pending_clone: PendingClone,
+    status: Option<String>,
 }
 
 impl BrowseApp {
@@ -80,6 +91,8 @@ impl BrowseApp {
             err,
             auto_open,
             toast: None,
+            pending_clone: PendingClone::Idle,
+            status: None,
         }
     }
 
@@ -96,41 +109,150 @@ impl BrowseApp {
         }
     }
 
-    fn open_current(&mut self) {
-        let Some(profile) = &self.profile else {
-            self.err = Some("No Radicle profile loaded.".into());
-            if let Some(m) = self.model {
-                if let Ok(n) = gleam_guest::update(m, MSG_FAILED) {
-                    self.model = Some(n);
-                    self.slots = Slots::from_error("No Radicle profile loaded.");
-                }
+    fn fail_open(&mut self, msg: impl Into<String>) {
+        let msg = msg.into();
+        self.slots = Slots::from_error(&msg);
+        self.err = Some(msg);
+        self.status = None;
+        if let Some(m) = self.model {
+            match gleam_guest::update(m, MSG_FAILED) {
+                Ok(n) => self.model = Some(n),
+                Err(e) => self.err = Some(e),
             }
+        }
+    }
+
+    fn apply_view(&mut self, view: rad::RepoView) {
+        let Some(profile) = &self.profile else {
+            return;
+        };
+        self.repo_ui.reset_for(&view.rid, &view.head_oid, &view.files);
+        self.repo_ui.open_readme_if_present(profile, &view.files);
+        self.slots = Slots::from_view(&view);
+        self.err = None;
+        self.status = None;
+        if let Some(m) = self.model {
+            match gleam_guest::update(m, MSG_LOADED) {
+                Ok(n) => self.model = Some(n),
+                Err(e) => self.err = Some(e),
+            }
+        }
+    }
+
+    fn apply_clone_outcome(&mut self, outcome: CloneOutcome) {
+        self.refresh_local_repos();
+        if outcome.fetched && outcome.checked_out {
+            self.show_toast(format!(
+                "Cloned {} → {}",
+                outcome.name,
+                outcome.path.display()
+            ));
+        } else if outcome.fetched {
+            self.show_toast(format!("Cloned {} to local storage", outcome.name));
+        } else if outcome.checked_out {
+            self.show_toast(format!(
+                "Moved {} → {}",
+                outcome.name,
+                outcome.path.display()
+            ));
+        }
+        self.open_after_clone(&outcome.rid);
+    }
+
+    fn open_after_clone(&mut self, rid: &str) {
+        let Some(profile) = &self.profile else {
+            self.fail_open("No Radicle profile loaded.");
+            return;
+        };
+        match rad::open_repo(profile, rid) {
+            Ok(view) => self.apply_view(view),
+            Err(e) => self.fail_open(e.to_string()),
+        }
+    }
+
+    fn open_current(&mut self) {
+        if !matches!(self.pending_clone, PendingClone::Idle) {
+            return;
+        }
+
+        let Some(profile) = &self.profile else {
+            self.fail_open("No Radicle profile loaded.");
             return;
         };
 
-        match rad::open_repo(profile, &self.rid_input) {
-            Ok(view) => {
-                self.repo_ui.reset_for(&view.rid, &view.head_oid, &view.files);
-                self.repo_ui.open_readme_if_present(profile, &view.files);
-                self.slots = Slots::from_view(&view);
-                self.err = None;
-                if let Some(m) = self.model {
-                    match gleam_guest::update(m, MSG_LOADED) {
-                        Ok(n) => self.model = Some(n),
-                        Err(e) => self.err = Some(e),
-                    }
-                }
-            }
+        let rid = self.rid_input.trim().to_string();
+        if rid.is_empty() {
+            self.fail_open("Enter a Radicle ID (rad:z…).");
+            return;
+        }
+
+        // Already local: ensure ~/code checkout, then open. Missing: clone on a worker thread.
+        let local = match rad::has_local(profile, &rid) {
+            Ok(v) => v,
             Err(e) => {
-                let msg = e.to_string();
-                self.slots = Slots::from_error(&msg);
-                self.err = Some(msg.clone());
-                if let Some(m) = self.model {
-                    match gleam_guest::update(m, MSG_FAILED) {
-                        Ok(n) => self.model = Some(n),
-                        Err(e) => self.err = Some(e),
+                self.fail_open(e.to_string());
+                return;
+            }
+        };
+
+        if local {
+            let checkout = rad::clone_to_local(profile, &rid);
+            let view = rad::open_repo(profile, &rid);
+            match (checkout, view) {
+                (Ok(outcome), Ok(view)) => {
+                    if outcome.checked_out {
+                        self.show_toast(format!(
+                            "Moved {} to {}",
+                            outcome.name,
+                            outcome.path.display()
+                        ));
                     }
+                    self.apply_view(view);
                 }
+                (Err(e), Ok(view)) => {
+                    // Checkout may fail (path busy); still open from storage.
+                    self.show_toast(format!("Opened from storage ({e})"));
+                    self.apply_view(view);
+                }
+                (_, Err(e)) => self.fail_open(e.to_string()),
+            }
+            return;
+        }
+
+        self.status = Some(format!("Cloning {rid} to local storage…"));
+        self.err = None;
+        // Profile isn't Sync; re-load inside the worker.
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let result = (|| {
+                let profile = rad::load_profile().map_err(|e| e.to_string())?;
+                rad::clone_to_local(&profile, &rid).map_err(|e| e.to_string())
+            })();
+            let _ = tx.send(result);
+        });
+        self.pending_clone = PendingClone::Working { rx };
+    }
+
+    fn poll_clone(&mut self, ctx: &egui::Context) {
+        let rx = match &self.pending_clone {
+            PendingClone::Working { rx, .. } => rx,
+            PendingClone::Idle => return,
+        };
+        let msg = match rx.try_recv() {
+            Ok(v) => Some(v),
+            Err(mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(Duration::from_millis(100));
+                None
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Some(Err("Clone worker disconnected.".into()))
+            }
+        };
+        if let Some(result) = msg {
+            self.pending_clone = PendingClone::Idle;
+            match result {
+                Ok(outcome) => self.apply_clone_outcome(outcome),
+                Err(e) => self.fail_open(e),
             }
         }
     }
@@ -170,12 +292,16 @@ impl eframe::App for BrowseApp {
             }
         }
 
+        self.poll_clone(ctx);
+
         if self.auto_open {
             self.auto_open = false;
             if !self.rid_input.trim().is_empty() {
                 self.open_current();
             }
         }
+
+        let cloning = !matches!(self.pending_clone, PendingClone::Idle);
 
         central_page(ctx, &th, "browse", |g| {
             g.section(|ui| {
@@ -199,7 +325,9 @@ impl eframe::App for BrowseApp {
                     |ui| {
                         ui.set_min_height(h);
                         ui.set_max_height(h);
-                        if primary_button(ui, &th, "Open").clicked() {
+                        let open_label = if cloning { "Cloning…" } else { "Open" };
+                        let open = primary_button(ui, &th, open_label);
+                        if open.clicked() && !cloning {
                             btn_open = true;
                         }
                         ui.add_space(th.spacing.sm);
@@ -232,11 +360,16 @@ impl eframe::App for BrowseApp {
                         self.show_toast("RID copied");
                     }
                 }
-                if enter_open || btn_open {
+                if (enter_open || btn_open) && !cloning {
                     self.open_current();
                     return;
                 }
                 ui.add_space(th.spacing.sm);
+
+                if let Some(status) = &self.status {
+                    dim_label(ui, &th, status);
+                    ui.add_space(th.spacing.sm);
+                }
 
                 let Some(model) = self.model else {
                     if let Some(err) = &self.err {
@@ -252,9 +385,11 @@ impl eframe::App for BrowseApp {
                         clicked = RepoList::show(ui, &th, &self.local_repos, &self.rid_input);
                     });
                     if let Some(rid) = clicked {
-                        self.rid_input = rid;
-                        self.open_current();
-                        return;
+                        if !cloning {
+                            self.rid_input = rid;
+                            self.open_current();
+                            return;
+                        }
                     }
                     if let Some(err) = &self.err {
                         ui.add_space(th.spacing.sm);
@@ -381,7 +516,7 @@ fn rid_input_field(
                     .frame(false)
                     .desired_width(edit_rect.width())
                     .margin(Margin::ZERO)
-                    .hint_text("rad:z… or filter local repos"),
+                    .hint_text("rad:z… — open local or clone + move to ~/code"),
             )
         },
     );

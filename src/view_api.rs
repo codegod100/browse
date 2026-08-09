@@ -103,7 +103,7 @@ impl Op {
 pub fn vocab(code: i64) -> &'static str {
     match code {
         1 => "Browse",
-        2 => "Paste a Radicle ID (rad:z…) for a repo already in local storage, then Open.",
+        2 => "Paste a Radicle ID (rad:z…). Open clones it to local storage and moves a working copy to ~/code when needed.",
         3 => "Open",
         4 => "Back",
         5 => "Could not open",

@@ -31,7 +31,11 @@ impl RepoList {
             .collect();
 
         if repos.is_empty() {
-            dim_label(ui, th, "No repositories in local storage yet.");
+            dim_label(
+                ui,
+                th,
+                "No repositories in local storage yet. Paste a rad:z… and Open to clone.",
+            );
             return None;
         }
         if filtered.is_empty() {
