@@ -55,7 +55,7 @@ impl RepoList {
         }
 
         let mut open: Option<String> = None;
-        // Fill remaining viewport height (page scroll + card chrome).
+        // Fill remaining viewport height under the RID row / card chrome.
         let h = (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(200.0);
         egui::ScrollArea::vertical()
             .id_salt("local_repos")
