@@ -1,0 +1,43 @@
+# Trigger boxci browse merge pipeline on push to main (post-merge APK).
+# boxci runs on https://boxci.boxd.sh — see .boxci/pipeline.yml.
+#
+# Manual: ./scripts/boxci/dispatch-merge.sh
+
+name: boxci merge
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: boxci-merge-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    name: Trigger boxci merge build
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST boxci /api/runs/from-repo
+        env:
+          BOXCI_URL: https://boxci.boxd.sh
+        run: |
+          set -euo pipefail
+          payload="$(jq -n \
+            --arg repo_url "https://nandi.radicle.garden/z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3.git" \
+            --arg repo "rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3" \
+            --arg trigger "merge" \
+            --arg sha "${{ github.sha }}" \
+            --arg branch "main" \
+            '{
+              repo_url: $repo_url,
+              repo: $repo,
+              trigger: $trigger,
+              sha: $sha,
+              branch: $branch
+            }')"
+          echo "POST ${BOXCI_URL}/api/runs/from-repo"
+          curl -fsSL -X POST "${BOXCI_URL}/api/runs/from-repo" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            | jq '{id, status, pipeline, duration_s}'
