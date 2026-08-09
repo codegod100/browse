@@ -1,18 +1,90 @@
-//! Interactive Files / Commits browser (host-owned selection state).
+//! Interactive Files / Commits / Patches / Issues browser (host-owned selection).
 
 use eframe::egui::{self, Align, CursorIcon, FontFamily, Layout, RichText, Sense, Vec2};
 use radicle::Profile;
-use vidya::{button, card, dim_label, primary_button, side_by_side, title_2, Theme};
+use vidya::{body, button, card, dim_label, primary_button, side_by_side, title_2, Theme};
 
 use crate::markdown;
 use crate::rad;
-use crate::view_api::{CommitRow, FileRow, ViewModel};
+use crate::view_api::{CommitRow, FileRow, IssueRow, PatchRow, ViewModel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
     #[default]
     Files,
     Commits,
+    Patches,
+    Issues,
+}
+
+/// Patch list filter (Radicle patch states + All).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PatchFilter {
+    #[default]
+    Open,
+    Draft,
+    Merged,
+    Archived,
+    All,
+}
+
+impl PatchFilter {
+    const ALL: &[Self] = &[
+        Self::Open,
+        Self::Draft,
+        Self::Merged,
+        Self::Archived,
+        Self::All,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Open",
+            Self::Draft => "Draft",
+            Self::Merged => "Merged",
+            Self::Archived => "Archived",
+            Self::All => "All",
+        }
+    }
+
+    fn matches(self, state: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Open => state == "open",
+            Self::Draft => state == "draft",
+            Self::Merged => state == "merged",
+            Self::Archived => state == "archived",
+        }
+    }
+}
+
+/// Issue list filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IssueFilter {
+    #[default]
+    Open,
+    Closed,
+    All,
+}
+
+impl IssueFilter {
+    const ALL: &[Self] = &[Self::Open, Self::Closed, Self::All];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Open => "Open",
+            Self::Closed => "Closed",
+            Self::All => "All",
+        }
+    }
+
+    fn matches(self, state: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Open => state == "open",
+            Self::Closed => state == "closed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -35,6 +107,11 @@ pub struct RepoUi {
     pub selected_diff_path: Option<String>,
     pub diff_text: String,
     pub commit_error: Option<String>,
+
+    pub patch_filter: PatchFilter,
+    pub selected_patch: Option<String>,
+    pub issue_filter: IssueFilter,
+    pub selected_issue: Option<String>,
 }
 
 impl RepoUi {
@@ -175,12 +252,22 @@ impl RepoBrowser {
             tab_btn(ui, th, state.tab == Tab::Commits, "Commits", || {
                 state.tab = Tab::Commits;
             });
+            ui.add_space(th.spacing.sm);
+            tab_btn(ui, th, state.tab == Tab::Patches, "Patches", || {
+                state.tab = Tab::Patches;
+            });
+            ui.add_space(th.spacing.sm);
+            tab_btn(ui, th, state.tab == Tab::Issues, "Issues", || {
+                state.tab = Tab::Issues;
+            });
         });
         ui.add_space(th.spacing.md);
 
         match state.tab {
             Tab::Files => files_tab(ui, th, model, state, profile),
             Tab::Commits => commits_tab(ui, th, model, state, profile),
+            Tab::Patches => patches_tab(ui, th, model, state),
+            Tab::Issues => issues_tab(ui, th, model, state),
         }
     }
 }
@@ -427,6 +514,338 @@ fn commit_list(
             ui.add_space(th.spacing.sm);
         }
     });
+}
+
+fn patches_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
+    let gap = th.spacing.lg;
+    let avail_w = ui.available_width();
+    let avail_h = remaining_height(ui);
+    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+
+    if side_by_side(avail_w, 220.0, gap) {
+        ui.allocate_ui_with_layout(
+            Vec2::new(avail_w, avail_h),
+            Layout::left_to_right(Align::Min),
+            |ui| {
+                ui.set_min_size(Vec2::new(avail_w, avail_h));
+                ui.set_max_size(Vec2::new(avail_w, avail_h));
+                pane(ui, list_w, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        patch_list(ui, th, &model.patches, state);
+                    });
+                });
+                ui.add_space(gap);
+                let rest = (avail_w - list_w - gap).max(1.0);
+                pane(ui, rest, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        patch_detail(ui, th, &model.patches, state);
+                    });
+                });
+            },
+        );
+    } else {
+        let half = ((avail_h - gap) * 0.4).max(120.0);
+        ui.set_min_height(avail_h);
+        card(ui, th, |ui| {
+            ui.set_min_height(half);
+            patch_list(ui, th, &model.patches, state);
+        });
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            patch_detail(ui, th, &model.patches, state);
+        });
+    }
+}
+
+fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
+    let gap = th.spacing.lg;
+    let avail_w = ui.available_width();
+    let avail_h = remaining_height(ui);
+    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+
+    if side_by_side(avail_w, 220.0, gap) {
+        ui.allocate_ui_with_layout(
+            Vec2::new(avail_w, avail_h),
+            Layout::left_to_right(Align::Min),
+            |ui| {
+                ui.set_min_size(Vec2::new(avail_w, avail_h));
+                ui.set_max_size(Vec2::new(avail_w, avail_h));
+                pane(ui, list_w, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        issue_list(ui, th, &model.issues, state);
+                    });
+                });
+                ui.add_space(gap);
+                let rest = (avail_w - list_w - gap).max(1.0);
+                pane(ui, rest, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        issue_detail(ui, th, &model.issues, state);
+                    });
+                });
+            },
+        );
+    } else {
+        let half = ((avail_h - gap) * 0.4).max(120.0);
+        ui.set_min_height(avail_h);
+        card(ui, th, |ui| {
+            ui.set_min_height(half);
+            issue_list(ui, th, &model.issues, state);
+        });
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            issue_detail(ui, th, &model.issues, state);
+        });
+    }
+}
+
+fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut RepoUi) {
+    title_2(ui, th, "Patches");
+    ui.add_space(th.spacing.sm);
+    filter_tabs(ui, th, PatchFilter::ALL, state.patch_filter, |f| {
+        if state.patch_filter != f {
+            state.patch_filter = f;
+            // Drop selection when it leaves the active filter.
+            if let Some(id) = state.selected_patch.as_deref() {
+                let keep = patches
+                    .iter()
+                    .any(|p| p.id == id && f.matches(&p.state));
+                if !keep {
+                    state.selected_patch = None;
+                }
+            }
+        }
+    });
+    ui.add_space(th.spacing.md);
+
+    let filtered: Vec<&PatchRow> = patches
+        .iter()
+        .filter(|p| state.patch_filter.matches(&p.state))
+        .collect();
+    if patches.is_empty() {
+        dim_label(ui, th, "(no patches)");
+        return;
+    }
+    if filtered.is_empty() {
+        dim_label(
+            ui,
+            th,
+            &format!("(no {} patches)", state.patch_filter.label().to_lowercase()),
+        );
+        return;
+    }
+    fill_scroll(ui, "tab_patches", false, |ui| {
+        for p in filtered {
+            let selected = state.selected_patch.as_deref() == Some(p.id.as_str());
+            let label = if state.patch_filter == PatchFilter::All {
+                format!("[{}] {}", p.state, p.title)
+            } else {
+                p.title.clone()
+            };
+            let response = selectable_row(ui, th, &label, selected, false, true);
+            if response.clicked() {
+                state.selected_patch = Some(p.id.clone());
+            }
+            dim_label(ui, th, &format!("{} · {}", p.short_id, p.author));
+            ui.add_space(th.spacing.sm);
+        }
+    });
+}
+
+fn patch_detail(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &RepoUi) {
+    let Some(id) = state.selected_patch.as_deref() else {
+        dim_label(ui, th, "Select a patch to view its details.");
+        return;
+    };
+    let Some(p) = patches.iter().find(|p| p.id == id) else {
+        dim_label(ui, th, "Patch not found in snapshot.");
+        return;
+    };
+
+    title_2(ui, th, &p.title);
+    ui.add_space(th.spacing.sm);
+    dim_label(
+        ui,
+        th,
+        &format!(
+            "{} · {} · {} · {} revision{}",
+            p.state,
+            p.short_id,
+            p.author,
+            p.revisions,
+            if p.revisions == 1 { "" } else { "s" }
+        ),
+    );
+    ui.add_space(th.spacing.sm);
+    dim_label(
+        ui,
+        th,
+        &format!(
+            "base {} → head {}",
+            short_oid_display(&p.base),
+            short_oid_display(&p.head)
+        ),
+    );
+    ui.add_space(th.spacing.md);
+    fill_scroll(ui, "patch_detail", true, |ui| {
+        if p.description.is_empty() {
+            dim_label(ui, th, "(no description)");
+        } else if looks_like_md(&p.description) {
+            markdown::render(ui, th, &p.description);
+        } else {
+            body(ui, th, &p.description);
+        }
+    });
+}
+
+fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut RepoUi) {
+    title_2(ui, th, "Issues");
+    ui.add_space(th.spacing.sm);
+    filter_tabs(ui, th, IssueFilter::ALL, state.issue_filter, |f| {
+        if state.issue_filter != f {
+            state.issue_filter = f;
+            if let Some(id) = state.selected_issue.as_deref() {
+                let keep = issues
+                    .iter()
+                    .any(|i| i.id == id && f.matches(&i.state));
+                if !keep {
+                    state.selected_issue = None;
+                }
+            }
+        }
+    });
+    ui.add_space(th.spacing.md);
+
+    let filtered: Vec<&IssueRow> = issues
+        .iter()
+        .filter(|i| state.issue_filter.matches(&i.state))
+        .collect();
+    if issues.is_empty() {
+        dim_label(ui, th, "(no issues)");
+        return;
+    }
+    if filtered.is_empty() {
+        dim_label(
+            ui,
+            th,
+            &format!("(no {} issues)", state.issue_filter.label().to_lowercase()),
+        );
+        return;
+    }
+    fill_scroll(ui, "tab_issues", false, |ui| {
+        for issue in filtered {
+            let selected = state.selected_issue.as_deref() == Some(issue.id.as_str());
+            let label = if state.issue_filter == IssueFilter::All {
+                format!("[{}] {}", issue.state, issue.title)
+            } else {
+                issue.title.clone()
+            };
+            let response = selectable_row(ui, th, &label, selected, false, true);
+            if response.clicked() {
+                state.selected_issue = Some(issue.id.clone());
+            }
+            let replies = if issue.replies == 0 {
+                "no replies".to_string()
+            } else {
+                format!(
+                    "{} repl{}",
+                    issue.replies,
+                    if issue.replies == 1 { "y" } else { "ies" }
+                )
+            };
+            dim_label(
+                ui,
+                th,
+                &format!("{} · {} · {}", issue.short_id, issue.author, replies),
+            );
+            ui.add_space(th.spacing.sm);
+        }
+    });
+}
+
+fn filter_tabs<F: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    filters: &[F],
+    active: F,
+    mut on_select: impl FnMut(F),
+) where
+    F: FilterTab,
+{
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = th.spacing.sm;
+        for &f in filters {
+            tab_btn(ui, th, active == f, f.label(), || on_select(f));
+        }
+    });
+}
+
+trait FilterTab {
+    fn label(self) -> &'static str;
+}
+
+impl FilterTab for PatchFilter {
+    fn label(self) -> &'static str {
+        PatchFilter::label(self)
+    }
+}
+
+impl FilterTab for IssueFilter {
+    fn label(self) -> &'static str {
+        IssueFilter::label(self)
+    }
+}
+
+fn issue_detail(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &RepoUi) {
+    let Some(id) = state.selected_issue.as_deref() else {
+        dim_label(ui, th, "Select an issue to view its details.");
+        return;
+    };
+    let Some(issue) = issues.iter().find(|i| i.id == id) else {
+        dim_label(ui, th, "Issue not found in snapshot.");
+        return;
+    };
+
+    title_2(ui, th, &issue.title);
+    ui.add_space(th.spacing.sm);
+    dim_label(
+        ui,
+        th,
+        &format!("{} · {} · {}", issue.state, issue.short_id, issue.author),
+    );
+    ui.add_space(th.spacing.md);
+    fill_scroll(ui, "issue_detail", true, |ui| {
+        if issue.description.is_empty() {
+            dim_label(ui, th, "(no description)");
+        } else if looks_like_md(&issue.description) {
+            markdown::render(ui, th, &issue.description);
+        } else {
+            body(ui, th, &issue.description);
+        }
+        if issue.replies > 0 {
+            ui.add_space(th.spacing.lg);
+            dim_label(
+                ui,
+                th,
+                &format!(
+                    "{} repl{} in thread",
+                    issue.replies,
+                    if issue.replies == 1 { "y" } else { "ies" }
+                ),
+            );
+        }
+    });
+}
+
+fn short_oid_display(oid: &str) -> &str {
+    if oid.len() > 7 { &oid[..7] } else { oid }
+}
+
+fn looks_like_md(text: &str) -> bool {
+    text.contains('\n')
+        || text.contains("```")
+        || text.contains("**")
+        || text.starts_with('#')
+        || text.contains("](")
 }
 
 fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Option<&Profile>) {
