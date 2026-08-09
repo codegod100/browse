@@ -1,6 +1,6 @@
 # Browse
 
-Minimal Radicle repo viewer: paste a `rad:z…` ID (or pass it on the CLI) and see name, description, files (README opened when present), and commits for a repo already in local storage.
+Minimal Radicle repo viewer: paste a `rad:z…` ID (or pass it on the CLI) and see name, description, files (README opened when present), commits, patches, and issues for a repo already in local storage.
 
 **Stack:** [Vidya](https://tangled.org/nandi.uk/vidya) (egui shell) · Gleam TEA guest (screens / layout opcodes) · [`radicle`](https://app.radicle.xyz) crates (Profile + storage).
 
@@ -27,7 +27,7 @@ Gleam builds screens with view helpers in [`gleam/browse/src/browse.gleam`](glea
 | Path | Role |
 |------|------|
 | `gleam/browse/src/browse.gleam` | TEA + view DSL → opcodes |
-| `src/components/` | Meta, Readme, RepoBrowser (Files/Commits tabs) |
+| `src/components/` | Meta, Readme, RepoBrowser (Files/Commits/Patches/Issues tabs) |
 | `src/view_api.rs` | Host paint API (`Op` / `ViewModel` → components) |
 | `src/markdown.rs` | README via pulldown-cmark → Vidya text |
 | `src/rad.rs` | `Profile::load` + open by RID → snapshot |
