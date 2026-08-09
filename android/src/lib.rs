@@ -1,4 +1,4 @@
-//! Browse — Radicle repo viewer. Vidya paints; Gleam owns screens; radicle crates load RIDs.
+//! Browse — Radicle repo viewer (desktop host + Android NativeActivity).
 
 mod app;
 mod components;
@@ -8,32 +8,13 @@ mod markdown;
 mod rad;
 mod view_api;
 
-fn main() -> eframe::Result {
-    let mut args = std::env::args().skip(1).peekable();
-    let smoke = args.peek().is_some_and(|a| a == "--smoke");
-    if smoke {
-        args.next();
-    }
+pub use app::run_desktop;
 
-    let rid = args
-        .next()
-        .filter(|a| a.starts_with("rad:") || a.starts_with('z'));
-    let rid = rid.map(|a| {
-        if a.starts_with("rad:") {
-            a
-        } else {
-            format!("rad:{a}")
-        }
-    });
+#[cfg(target_os = "android")]
+pub use app::run_android;
 
-    if smoke {
-        return run_smoke(rid.as_deref());
-    }
-
-    app::run(rid)
-}
-
-fn run_smoke(rid: Option<&str>) -> eframe::Result {
+/// Headless smoke: open a RID from local storage and print a short dump.
+pub fn run_smoke(rid: Option<&str>) -> eframe::Result {
     let profile = rad::load_profile().expect("load profile");
     let rid = rid.expect("usage: browse --smoke rad:z…");
     let view = rad::open_repo(&profile, rid).unwrap_or_else(|e| {
@@ -104,4 +85,24 @@ fn run_smoke(rid: Option<&str>) -> eframe::Result {
     let len = gleam_guest::view_len(model).expect("view_len");
     println!("gleam screen=viewing opcodes={len}");
     Ok(())
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+    );
+    // Point Radicle at app-private storage when RAD_HOME is unset.
+    if std::env::var_os("RAD_HOME").is_none() {
+        if let Some(dir) = android_app.internal_data_path() {
+            // SAFETY: single-threaded before other threads touch the env.
+            std::env::set_var("RAD_HOME", dir);
+        }
+    }
+    log::info!("browse android_main start");
+    match run_android(android_app) {
+        Ok(()) => log::info!("browse run_android returned Ok"),
+        Err(e) => log::error!("browse run_android error: {e}"),
+    }
 }
