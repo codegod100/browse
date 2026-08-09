@@ -6,12 +6,12 @@
 //// Packing: payload * 16 + tag
 ////   0 meta · 1 title · 2 body · 4 button · 5 space · 6 status · 7 header
 ////   8/9 card · 10 slot · 12 md_body · 13 file_list · 14 commit_list
-////  15 repo_tabs     interactive Files | Commits browser
+////  15 repo_tabs     interactive Files | Commits | Patches | Issues | Jobs
 ////
 //// Space: 0=xs · 1=sm · 2=md · 3=lg · 4=xl · 5=page
 ////
 //// Viewing layout:
-////   chrome → meta card → repo tabs (files|commits; README auto-opened)
+////   chrome → meta card → repo tabs (files|commits|patches|issues|jobs)
 ////
 //// Note: keep DSL helpers in this module — Wasm Gleam cannot call across
 //// modules yet.
