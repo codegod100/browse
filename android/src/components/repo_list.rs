@@ -1,4 +1,4 @@
-//! Startup page: local Radicle storage inventory under the RID field.
+//! Startup page: recently viewed + local Radicle storage inventory under the RID field.
 
 use eframe::egui::{
     self, Align, CursorIcon, Layout, Margin, RichText, Sense, Stroke, StrokeKind, UiBuilder,
@@ -7,21 +7,44 @@ use eframe::egui::{
 use vidya::{body, dim_label, title_2, Theme};
 
 use crate::rad::RepoSummary;
+use crate::recent::{self, RecentRepo};
 
 pub struct RepoList;
 
 impl RepoList {
-    /// Filter by name/RID/description substring (`query`), paint clickable rows.
-    /// Returns a RID to open when a row is clicked.
+    /// Paint recently viewed (when any) then local inventory.
+    /// Filter by name/RID/description substring (`query`). Returns a RID to open when a row is clicked.
     pub fn show(
         ui: &mut egui::Ui,
         th: &Theme,
+        recent: &[RecentRepo],
         repos: &[RepoSummary],
         query: &mut String,
     ) -> Option<String> {
-        title_2(ui, th, "Local repos");
-        ui.add_space(th.spacing.sm);
+        let mut open: Option<String> = None;
+
         search_field(ui, th, query);
+        ui.add_space(th.spacing.sm);
+
+        let recent_filtered = recent::filter(recent, query);
+        if !recent.is_empty() {
+            title_2(ui, th, "Recently viewed");
+            ui.add_space(th.spacing.sm);
+            if recent_filtered.is_empty() {
+                dim_label(ui, th, "No recent repos match this search.");
+            } else {
+                for repo in &recent_filtered {
+                    let summary = RepoSummary::from(*repo);
+                    let response = repo_row(ui, th, &summary);
+                    if response.clicked() {
+                        open = Some(repo.rid.clone());
+                    }
+                }
+            }
+            ui.add_space(th.spacing.md);
+        }
+
+        title_2(ui, th, "Local repos");
         ui.add_space(th.spacing.sm);
 
         let q = query.trim().to_lowercase();
@@ -39,7 +62,7 @@ impl RepoList {
 
         if repos.is_empty() {
             dim_label(ui, th, "No repositories in local storage yet.");
-            return None;
+            return open;
         }
         if !q.is_empty() {
             dim_label(
@@ -51,10 +74,9 @@ impl RepoList {
         }
         if filtered.is_empty() {
             dim_label(ui, th, "No repos match this search.");
-            return None;
+            return open;
         }
 
-        let mut open: Option<String> = None;
         // Fill remaining viewport height under the RID row / card chrome.
         let h = (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(200.0);
         egui::ScrollArea::vertical()
