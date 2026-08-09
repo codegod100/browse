@@ -1,0 +1,36 @@
+[package]
+name = "browse"
+version = "0.1.0"
+edition = "2021"
+description = "Browse — Radicle repo viewer (Vidya shell + Gleam logic)"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[workspace]
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[[bin]]
+name = "browse"
+path = "src/main.rs"
+
+[dependencies]
+vidya = { path = "../vidya" }
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+egui = { version = "0.31", default-features = false }
+wasmtime = { version = "29", default-features = false, features = [
+    "cranelift",
+    "runtime",
+] }
+radicle = { version = "0.25", default-features = false }
+thiserror = "2"

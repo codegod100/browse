@@ -1,0 +1,6 @@
+/target/
+/gleam/browse/build/
+/gleam/browse/manifest.toml
+# Keep the hermetic nix fallback; ignore other wasm artifacts.
+*.wasm
+!gleam/browse/prebuilt/browse.wasm

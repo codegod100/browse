@@ -1,0 +1,4 @@
+name = "browse"
+version = "0.1.0"
+description = "Browse — Gleam TEA for Radicle repo view (Vidya paints opcodes)"
+target = "wasm"
