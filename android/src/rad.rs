@@ -3,6 +3,9 @@
 use std::path::Path;
 
 use git2::{DiffFormat, DiffOptions, ObjectType};
+use radicle::cob::issue::Issues as IssueStore;
+use radicle::cob::patch::Patches as PatchStore;
+use radicle::cob::store::access::ReadOnly;
 use radicle::identity::DocAt;
 use radicle::prelude::RepoId;
 use radicle::storage::git::Repository;
@@ -10,13 +13,17 @@ use radicle::storage::{ReadRepository, ReadStorage, RepositoryInfo};
 use radicle::Profile;
 use thiserror::Error;
 
-use crate::view_api::{CommitRow, FileRow};
+use crate::view_api::{CommitRow, FileRow, IssueRow, JobRow, JobRunRow, PatchRow};
 
 const MAX_README: usize = 24_000;
 const MAX_BLOB: usize = 200_000;
 const MAX_TREE: usize = 64;
 const MAX_COMMITS: usize = 32;
 const MAX_DIFF: usize = 200_000;
+const MAX_PATCHES: usize = 64;
+const MAX_ISSUES: usize = 64;
+const MAX_JOBS: usize = 64;
+const MAX_DESC: usize = 8_000;
 
 #[derive(Debug, Clone)]
 pub struct RepoSummary {
@@ -35,6 +42,9 @@ pub struct RepoView {
     pub readme: String,
     pub files: Vec<FileRow>,
     pub commits: Vec<CommitRow>,
+    pub patches: Vec<PatchRow>,
+    pub issues: Vec<IssueRow>,
+    pub jobs: Vec<JobRow>,
 }
 
 #[derive(Debug, Error)]
@@ -111,6 +121,11 @@ pub fn open_repo(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError>
 
     let (readme, files) = readme_and_files(&repo, head)?;
     let commits = list_commits(&repo, head)?;
+    // Prefer live git COB stores so Open / tab re-press reloads pick up newly
+    // synced patches & issues even when the SQLite COB cache is stale.
+    let patches = list_patches(&repo).unwrap_or_default();
+    let issues = list_issues(&repo).unwrap_or_default();
+    let jobs = list_jobs(&repo).unwrap_or_default();
 
     Ok(RepoView {
         rid: rid.to_string(),
@@ -121,6 +136,9 @@ pub fn open_repo(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError>
         readme,
         files,
         commits,
+        patches,
+        issues,
+        jobs,
     })
 }
 
@@ -417,4 +435,176 @@ fn list_commits(
         });
     }
     Ok(commits)
+}
+
+fn list_patches(repo: &Repository) -> Result<Vec<PatchRow>, RadError> {
+    let patches = PatchStore::open(repo, ReadOnly).map_err(|e| RadError::Other(e.to_string()))?;
+    let mut rows = Vec::new();
+    for item in patches
+        .all()
+        .map_err(|e| RadError::Other(e.to_string()))?
+    {
+        if rows.len() >= MAX_PATCHES {
+            break;
+        }
+        let (id, patch) = item.map_err(|e| RadError::Other(e.to_string()))?;
+        let id_str = id.to_string();
+        rows.push(PatchRow {
+            short_id: short_oid(&id_str),
+            id: id_str,
+            title: patch.title().to_string(),
+            state: patch.state().to_string(),
+            author: short_did(&patch.author().to_string()),
+            description: truncate_desc(patch.description()),
+            head: patch.head().to_string(),
+            base: patch.base().to_string(),
+            revisions: patch.revisions().count(),
+            updated_ms: patch.updated_at().as_millis() as u64,
+        });
+    }
+    rows.sort_by(|a, b| {
+        open_first(&a.state, &b.state).then_with(|| b.updated_ms.cmp(&a.updated_ms))
+    });
+    Ok(rows)
+}
+
+fn list_issues(repo: &Repository) -> Result<Vec<IssueRow>, RadError> {
+    let issues = IssueStore::open(repo, ReadOnly).map_err(|e| RadError::Other(e.to_string()))?;
+    let mut rows = Vec::new();
+    for item in issues
+        .all()
+        .map_err(|e| RadError::Other(e.to_string()))?
+    {
+        if rows.len() >= MAX_ISSUES {
+            break;
+        }
+        let (id, issue) = item.map_err(|e| RadError::Other(e.to_string()))?;
+        let id_str = id.to_string();
+        let replies = issue.replies().count();
+        rows.push(IssueRow {
+            short_id: short_oid(&id_str),
+            id: id_str,
+            title: issue.title().to_string(),
+            state: issue.state().to_string(),
+            author: short_did(&issue.author().to_string()),
+            description: truncate_desc(issue.description()),
+            replies,
+            updated_ms: issue.timestamp().as_millis() as u64,
+        });
+    }
+    rows.sort_by(|a, b| {
+        open_first(&a.state, &b.state).then_with(|| b.updated_ms.cmp(&a.updated_ms))
+    });
+    Ok(rows)
+}
+
+fn list_jobs(repo: &Repository) -> Result<Vec<JobRow>, RadError> {
+    use radicle_job::{Jobs, Status};
+
+    let jobs = Jobs::open_readonly(repo).map_err(|e| RadError::Other(e.to_string()))?;
+    let mut rows = Vec::new();
+
+    for item in jobs
+        .all()
+        .map_err(|e| RadError::Other(e.to_string()))?
+    {
+        if rows.len() >= MAX_JOBS {
+            break;
+        }
+        let (oid, job) = item.map_err(|e| RadError::Other(e.to_string()))?;
+        let id = oid.to_string();
+        let commit = job.oid().to_string();
+
+        let mut runs = Vec::new();
+        let mut updated_secs = 0u64;
+        let mut latest_status = "none".to_string();
+        let mut latest_ts = 0u64;
+
+        for (node, node_runs) in job.runs() {
+            for (run_id, run) in node_runs.iter() {
+                let ts = run.timestamp().as_secs();
+                if ts >= latest_ts {
+                    latest_ts = ts;
+                    latest_status = match run.status() {
+                        Status::Started => "started".into(),
+                        Status::Finished(radicle_job::Reason::Succeeded) => "succeeded".into(),
+                        Status::Finished(radicle_job::Reason::Failed) => "failed".into(),
+                    };
+                }
+                updated_secs = updated_secs.max(ts);
+                runs.push(JobRunRow {
+                    node: short_nid(&node.to_string()),
+                    run_id: run_id.to_string(),
+                    status: match run.status() {
+                        Status::Started => "started".into(),
+                        Status::Finished(radicle_job::Reason::Succeeded) => "succeeded".into(),
+                        Status::Finished(radicle_job::Reason::Failed) => "failed".into(),
+                    },
+                    log: run.log().to_string(),
+                    timestamp_secs: ts,
+                });
+            }
+        }
+
+        runs.sort_by(|a, b| b.timestamp_secs.cmp(&a.timestamp_secs));
+
+        rows.push(JobRow {
+            short_id: short_oid(&id),
+            id,
+            short_commit: short_oid(&commit),
+            commit,
+            status: latest_status,
+            run_count: runs.len(),
+            node_count: job.runs().len(),
+            updated_secs,
+            runs,
+        });
+    }
+
+    rows.sort_by(|a, b| {
+        b.updated_secs
+            .cmp(&a.updated_secs)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(rows)
+}
+
+fn open_first(a: &str, b: &str) -> std::cmp::Ordering {
+    (b == "open").cmp(&(a == "open"))
+}
+
+fn short_oid(id: &str) -> String {
+    if id.len() > 7 {
+        id[..7].to_string()
+    } else {
+        id.to_string()
+    }
+}
+
+fn short_did(did: &str) -> String {
+    // Prefer the multibase key suffix over the did:key: prefix.
+    let key = did.strip_prefix("did:key:").unwrap_or(did);
+    if key.len() > 12 {
+        format!("{}…{}", &key[..6], &key[key.len() - 4..])
+    } else {
+        key.to_string()
+    }
+}
+
+fn short_nid(nid: &str) -> String {
+    let s = nid.strip_prefix("did:key:").unwrap_or(nid);
+    if s.len() > 12 {
+        format!("{}…", &s[..12])
+    } else {
+        s.to_string()
+    }
+}
+
+fn truncate_desc(text: &str) -> String {
+    let text = text.trim();
+    if text.len() > MAX_DESC {
+        format!("{}…", &text[..MAX_DESC])
+    } else {
+        text.to_string()
+    }
 }

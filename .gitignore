@@ -1,6 +1,11 @@
 /target/
-/gleam/browse/build/
-/gleam/browse/manifest.toml
+/host/target/
+/android/target/
+/android/gleam/browse/build/
+/android/gleam/browse/manifest.toml
+/result
+/result-browse
+/result-android
 # Keep the hermetic nix fallback; ignore other wasm artifacts.
 *.wasm
-!gleam/browse/prebuilt/browse.wasm
+!android/gleam/browse/prebuilt/browse.wasm
