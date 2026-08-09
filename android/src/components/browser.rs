@@ -1,6 +1,9 @@
 //! Interactive Files / Commits / Patches / Issues browser (host-owned selection).
 
-use eframe::egui::{self, Align, CursorIcon, FontFamily, Layout, RichText, Sense, Vec2};
+use eframe::egui::{
+    self, Align, CursorIcon, FontFamily, Layout, Margin, RichText, Sense, Stroke, StrokeKind,
+    UiBuilder, Vec2,
+};
 use radicle::Profile;
 use vidya::{body, button, card, dim_label, primary_button, side_by_side, title_2, Theme};
 
@@ -40,6 +43,11 @@ pub struct RepoUi {
 
     pub selected_patch: Option<String>,
     pub selected_issue: Option<String>,
+
+    /// Substring filter for the Patches tab list.
+    pub patch_filter: String,
+    /// Substring filter for the Issues tab list.
+    pub issue_filter: String,
 }
 
 impl RepoUi {
@@ -527,20 +535,56 @@ fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Repo
 
 fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut RepoUi) {
     title_2(ui, th, "Patches");
-    ui.add_space(th.spacing.md);
+    ui.add_space(th.spacing.sm);
+    search_field(ui, th, &mut state.patch_filter, "Search title, id, author, state…");
+    ui.add_space(th.spacing.sm);
+
     if patches.is_empty() {
         dim_label(ui, th, "(no patches)");
         return;
     }
+
+    let q = state.patch_filter.trim().to_lowercase();
+    let filtered: Vec<&PatchRow> = patches
+        .iter()
+        .filter(|p| patch_matches(p, &q))
+        .collect();
+
+    if !q.is_empty() {
+        dim_label(
+            ui,
+            th,
+            &format!("{} of {} patches", filtered.len(), patches.len()),
+        );
+        ui.add_space(th.spacing.xs);
+    }
+    if filtered.is_empty() {
+        dim_label(ui, th, "No patches match this search.");
+        return;
+    }
+
+    // Clone ids so we can mutate selection without borrow fights.
+    let rows: Vec<(String, String, String, String)> = filtered
+        .iter()
+        .map(|p| {
+            (
+                p.id.clone(),
+                p.state.clone(),
+                p.title.clone(),
+                format!("{} · {}", p.short_id, p.author),
+            )
+        })
+        .collect();
+
     fill_scroll(ui, "tab_patches", false, |ui| {
-        for p in patches {
-            let selected = state.selected_patch.as_deref() == Some(p.id.as_str());
-            let label = format!("[{}] {}", p.state, p.title);
+        for (id, state_label, title, meta) in rows {
+            let selected = state.selected_patch.as_deref() == Some(id.as_str());
+            let label = format!("[{state_label}] {title}");
             let response = selectable_row(ui, th, &label, selected, false, true);
             if response.clicked() {
-                state.selected_patch = Some(p.id.clone());
+                state.selected_patch = Some(id);
             }
-            dim_label(ui, th, &format!("{} · {}", p.short_id, p.author));
+            dim_label(ui, th, &meta);
             ui.add_space(th.spacing.sm);
         }
     });
@@ -594,19 +638,37 @@ fn patch_detail(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &Rep
 
 fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut RepoUi) {
     title_2(ui, th, "Issues");
-    ui.add_space(th.spacing.md);
+    ui.add_space(th.spacing.sm);
+    search_field(ui, th, &mut state.issue_filter, "Search title, id, author, state…");
+    ui.add_space(th.spacing.sm);
+
     if issues.is_empty() {
         dim_label(ui, th, "(no issues)");
         return;
     }
-    fill_scroll(ui, "tab_issues", false, |ui| {
-        for issue in issues {
-            let selected = state.selected_issue.as_deref() == Some(issue.id.as_str());
-            let label = format!("[{}] {}", issue.state, issue.title);
-            let response = selectable_row(ui, th, &label, selected, false, true);
-            if response.clicked() {
-                state.selected_issue = Some(issue.id.clone());
-            }
+
+    let q = state.issue_filter.trim().to_lowercase();
+    let filtered: Vec<&IssueRow> = issues
+        .iter()
+        .filter(|i| issue_matches(i, &q))
+        .collect();
+
+    if !q.is_empty() {
+        dim_label(
+            ui,
+            th,
+            &format!("{} of {} issues", filtered.len(), issues.len()),
+        );
+        ui.add_space(th.spacing.xs);
+    }
+    if filtered.is_empty() {
+        dim_label(ui, th, "No issues match this search.");
+        return;
+    }
+
+    let rows: Vec<(String, String, String, String)> = filtered
+        .iter()
+        .map(|issue| {
             let replies = if issue.replies == 0 {
                 "no replies".to_string()
             } else {
@@ -616,11 +678,24 @@ fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut Re
                     if issue.replies == 1 { "y" } else { "ies" }
                 )
             };
-            dim_label(
-                ui,
-                th,
-                &format!("{} · {} · {}", issue.short_id, issue.author, replies),
-            );
+            (
+                issue.id.clone(),
+                issue.state.clone(),
+                issue.title.clone(),
+                format!("{} · {} · {}", issue.short_id, issue.author, replies),
+            )
+        })
+        .collect();
+
+    fill_scroll(ui, "tab_issues", false, |ui| {
+        for (id, state_label, title, meta) in rows {
+            let selected = state.selected_issue.as_deref() == Some(id.as_str());
+            let label = format!("[{state_label}] {title}");
+            let response = selectable_row(ui, th, &label, selected, false, true);
+            if response.clicked() {
+                state.selected_issue = Some(id);
+            }
+            dim_label(ui, th, &meta);
             ui.add_space(th.spacing.sm);
         }
     });
@@ -677,6 +752,67 @@ fn looks_like_md(text: &str) -> bool {
         || text.contains("**")
         || text.starts_with('#')
         || text.contains("](")
+}
+
+fn patch_matches(p: &PatchRow, q: &str) -> bool {
+    if q.is_empty() {
+        return true;
+    }
+    p.title.to_lowercase().contains(q)
+        || p.id.to_lowercase().contains(q)
+        || p.short_id.to_lowercase().contains(q)
+        || p.author.to_lowercase().contains(q)
+        || p.state.to_lowercase().contains(q)
+        || p.description.to_lowercase().contains(q)
+        || p.head.to_lowercase().contains(q)
+        || p.base.to_lowercase().contains(q)
+}
+
+fn issue_matches(i: &IssueRow, q: &str) -> bool {
+    if q.is_empty() {
+        return true;
+    }
+    i.title.to_lowercase().contains(q)
+        || i.id.to_lowercase().contains(q)
+        || i.short_id.to_lowercase().contains(q)
+        || i.author.to_lowercase().contains(q)
+        || i.state.to_lowercase().contains(q)
+        || i.description.to_lowercase().contains(q)
+}
+
+/// Framed single-line search field matching the RID / repo-list inputs.
+fn search_field(ui: &mut egui::Ui, th: &Theme, text: &mut String, hint: &str) {
+    let h = th.spacing.control_height;
+    let w = ui.available_width().max(1.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
+
+    ui.painter().rect(
+        rect,
+        th.spacing.radius_md,
+        th.palette.view_bg,
+        Stroke::new(1.0_f32, th.palette.border_soft),
+        StrokeKind::Inside,
+    );
+
+    let pad_x = th.spacing.field_pad_x;
+    let edit_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + pad_x, rect.top()),
+        egui::pos2(rect.right() - pad_x, rect.bottom()),
+    );
+    ui.allocate_new_ui(
+        UiBuilder::new()
+            .max_rect(edit_rect)
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| {
+            ui.add(
+                egui::TextEdit::singleline(text)
+                    .frame(false)
+                    .desired_width(edit_rect.width())
+                    .margin(Margin::ZERO)
+                    .hint_text(hint),
+            );
+        },
+    );
 }
 
 fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Option<&Profile>) {
