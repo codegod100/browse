@@ -41,7 +41,15 @@ impl RepoList {
                     }
                 }
             }
-            ui.add_space(th.spacing.md);
+            // Clear break between recent and local inventory.
+            ui.add_space(th.spacing.lg);
+            let sep = ui.available_rect_before_wrap();
+            ui.painter().hline(
+                sep.left()..=sep.right(),
+                sep.top(),
+                Stroke::new(1.0_f32, th.palette.border_soft),
+            );
+            ui.add_space(1.0 + th.spacing.lg);
         }
 
         title_2(ui, th, "Local repos");
