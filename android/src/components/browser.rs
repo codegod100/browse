@@ -1,18 +1,23 @@
-//! Interactive Files / Commits browser (host-owned selection state).
+//! Interactive Files / Commits / Patches / Issues browser (host-owned selection).
 
-use eframe::egui::{self, Align, CursorIcon, FontFamily, Layout, RichText, Sense, Vec2};
+use eframe::egui::{
+    self, Align, CursorIcon, FontFamily, Layout, Margin, RichText, Sense, Stroke, StrokeKind,
+    UiBuilder, Vec2,
+};
 use radicle::Profile;
-use vidya::{button, card, dim_label, primary_button, side_by_side, title_2, Theme};
+use vidya::{body, button, card, dim_label, primary_button, side_by_side, title_2, Theme};
 
 use crate::markdown;
 use crate::rad;
-use crate::view_api::{CommitRow, FileRow, ViewModel};
+use crate::view_api::{CommitRow, FileRow, IssueRow, PatchRow, ViewModel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
     #[default]
     Files,
     Commits,
+    Patches,
+    Issues,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -35,6 +40,14 @@ pub struct RepoUi {
     pub selected_diff_path: Option<String>,
     pub diff_text: String,
     pub commit_error: Option<String>,
+
+    pub selected_patch: Option<String>,
+    pub selected_issue: Option<String>,
+
+    /// Substring filter for the Patches tab list.
+    pub patch_filter: String,
+    /// Substring filter for the Issues tab list.
+    pub issue_filter: String,
 }
 
 impl RepoUi {
@@ -175,12 +188,22 @@ impl RepoBrowser {
             tab_btn(ui, th, state.tab == Tab::Commits, "Commits", || {
                 state.tab = Tab::Commits;
             });
+            ui.add_space(th.spacing.sm);
+            tab_btn(ui, th, state.tab == Tab::Patches, "Patches", || {
+                state.tab = Tab::Patches;
+            });
+            ui.add_space(th.spacing.sm);
+            tab_btn(ui, th, state.tab == Tab::Issues, "Issues", || {
+                state.tab = Tab::Issues;
+            });
         });
         ui.add_space(th.spacing.md);
 
         match state.tab {
             Tab::Files => files_tab(ui, th, model, state, profile),
             Tab::Commits => commits_tab(ui, th, model, state, profile),
+            Tab::Patches => patches_tab(ui, th, model, state),
+            Tab::Issues => issues_tab(ui, th, model, state),
         }
     }
 }
@@ -197,8 +220,7 @@ fn tab_btn(ui: &mut egui::Ui, th: &Theme, active: bool, label: &str, on: impl Fn
 }
 
 fn remaining_height(ui: &egui::Ui) -> f32 {
-    // Prefer the visible clip region so we grow with the window, not the
-    // outer page ScrollArea's unbounded content height.
+    // Prefer the visible clip region so panes fill the central panel residual.
     (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(160.0)
 }
 
@@ -429,6 +451,370 @@ fn commit_list(
     });
 }
 
+fn patches_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
+    let gap = th.spacing.lg;
+    let avail_w = ui.available_width();
+    let avail_h = remaining_height(ui);
+    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+
+    if side_by_side(avail_w, 220.0, gap) {
+        ui.allocate_ui_with_layout(
+            Vec2::new(avail_w, avail_h),
+            Layout::left_to_right(Align::Min),
+            |ui| {
+                ui.set_min_size(Vec2::new(avail_w, avail_h));
+                ui.set_max_size(Vec2::new(avail_w, avail_h));
+                pane(ui, list_w, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        patch_list(ui, th, &model.patches, state);
+                    });
+                });
+                ui.add_space(gap);
+                let rest = (avail_w - list_w - gap).max(1.0);
+                pane(ui, rest, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        patch_detail(ui, th, &model.patches, state);
+                    });
+                });
+            },
+        );
+    } else {
+        let half = ((avail_h - gap) * 0.4).max(120.0);
+        ui.set_min_height(avail_h);
+        card(ui, th, |ui| {
+            ui.set_min_height(half);
+            patch_list(ui, th, &model.patches, state);
+        });
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            patch_detail(ui, th, &model.patches, state);
+        });
+    }
+}
+
+fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
+    let gap = th.spacing.lg;
+    let avail_w = ui.available_width();
+    let avail_h = remaining_height(ui);
+    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+
+    if side_by_side(avail_w, 220.0, gap) {
+        ui.allocate_ui_with_layout(
+            Vec2::new(avail_w, avail_h),
+            Layout::left_to_right(Align::Min),
+            |ui| {
+                ui.set_min_size(Vec2::new(avail_w, avail_h));
+                ui.set_max_size(Vec2::new(avail_w, avail_h));
+                pane(ui, list_w, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        issue_list(ui, th, &model.issues, state);
+                    });
+                });
+                ui.add_space(gap);
+                let rest = (avail_w - list_w - gap).max(1.0);
+                pane(ui, rest, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        issue_detail(ui, th, &model.issues, state);
+                    });
+                });
+            },
+        );
+    } else {
+        let half = ((avail_h - gap) * 0.4).max(120.0);
+        ui.set_min_height(avail_h);
+        card(ui, th, |ui| {
+            ui.set_min_height(half);
+            issue_list(ui, th, &model.issues, state);
+        });
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            issue_detail(ui, th, &model.issues, state);
+        });
+    }
+}
+
+fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut RepoUi) {
+    title_2(ui, th, "Patches");
+    ui.add_space(th.spacing.sm);
+    search_field(ui, th, &mut state.patch_filter, "Search title, id, author, state…");
+    ui.add_space(th.spacing.sm);
+
+    if patches.is_empty() {
+        dim_label(ui, th, "(no patches)");
+        return;
+    }
+
+    let q = state.patch_filter.trim().to_lowercase();
+    let filtered: Vec<&PatchRow> = patches
+        .iter()
+        .filter(|p| patch_matches(p, &q))
+        .collect();
+
+    if !q.is_empty() {
+        dim_label(
+            ui,
+            th,
+            &format!("{} of {} patches", filtered.len(), patches.len()),
+        );
+        ui.add_space(th.spacing.xs);
+    }
+    if filtered.is_empty() {
+        dim_label(ui, th, "No patches match this search.");
+        return;
+    }
+
+    // Clone ids so we can mutate selection without borrow fights.
+    let rows: Vec<(String, String, String, String)> = filtered
+        .iter()
+        .map(|p| {
+            (
+                p.id.clone(),
+                p.state.clone(),
+                p.title.clone(),
+                format!("{} · {}", p.short_id, p.author),
+            )
+        })
+        .collect();
+
+    fill_scroll(ui, "tab_patches", false, |ui| {
+        for (id, state_label, title, meta) in rows {
+            let selected = state.selected_patch.as_deref() == Some(id.as_str());
+            let label = format!("[{state_label}] {title}");
+            let response = selectable_row(ui, th, &label, selected, false, true);
+            if response.clicked() {
+                state.selected_patch = Some(id);
+            }
+            dim_label(ui, th, &meta);
+            ui.add_space(th.spacing.sm);
+        }
+    });
+}
+
+fn patch_detail(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &RepoUi) {
+    let Some(id) = state.selected_patch.as_deref() else {
+        dim_label(ui, th, "Select a patch to view its details.");
+        return;
+    };
+    let Some(p) = patches.iter().find(|p| p.id == id) else {
+        dim_label(ui, th, "Patch not found in snapshot.");
+        return;
+    };
+
+    title_2(ui, th, &p.title);
+    ui.add_space(th.spacing.sm);
+    dim_label(
+        ui,
+        th,
+        &format!(
+            "{} · {} · {} · {} revision{}",
+            p.state,
+            p.short_id,
+            p.author,
+            p.revisions,
+            if p.revisions == 1 { "" } else { "s" }
+        ),
+    );
+    ui.add_space(th.spacing.sm);
+    dim_label(
+        ui,
+        th,
+        &format!(
+            "base {} → head {}",
+            short_oid_display(&p.base),
+            short_oid_display(&p.head)
+        ),
+    );
+    ui.add_space(th.spacing.md);
+    fill_scroll(ui, "patch_detail", true, |ui| {
+        if p.description.is_empty() {
+            dim_label(ui, th, "(no description)");
+        } else if looks_like_md(&p.description) {
+            markdown::render(ui, th, &p.description);
+        } else {
+            body(ui, th, &p.description);
+        }
+    });
+}
+
+fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut RepoUi) {
+    title_2(ui, th, "Issues");
+    ui.add_space(th.spacing.sm);
+    search_field(ui, th, &mut state.issue_filter, "Search title, id, author, state…");
+    ui.add_space(th.spacing.sm);
+
+    if issues.is_empty() {
+        dim_label(ui, th, "(no issues)");
+        return;
+    }
+
+    let q = state.issue_filter.trim().to_lowercase();
+    let filtered: Vec<&IssueRow> = issues
+        .iter()
+        .filter(|i| issue_matches(i, &q))
+        .collect();
+
+    if !q.is_empty() {
+        dim_label(
+            ui,
+            th,
+            &format!("{} of {} issues", filtered.len(), issues.len()),
+        );
+        ui.add_space(th.spacing.xs);
+    }
+    if filtered.is_empty() {
+        dim_label(ui, th, "No issues match this search.");
+        return;
+    }
+
+    let rows: Vec<(String, String, String, String)> = filtered
+        .iter()
+        .map(|issue| {
+            let replies = if issue.replies == 0 {
+                "no replies".to_string()
+            } else {
+                format!(
+                    "{} repl{}",
+                    issue.replies,
+                    if issue.replies == 1 { "y" } else { "ies" }
+                )
+            };
+            (
+                issue.id.clone(),
+                issue.state.clone(),
+                issue.title.clone(),
+                format!("{} · {} · {}", issue.short_id, issue.author, replies),
+            )
+        })
+        .collect();
+
+    fill_scroll(ui, "tab_issues", false, |ui| {
+        for (id, state_label, title, meta) in rows {
+            let selected = state.selected_issue.as_deref() == Some(id.as_str());
+            let label = format!("[{state_label}] {title}");
+            let response = selectable_row(ui, th, &label, selected, false, true);
+            if response.clicked() {
+                state.selected_issue = Some(id);
+            }
+            dim_label(ui, th, &meta);
+            ui.add_space(th.spacing.sm);
+        }
+    });
+}
+
+fn issue_detail(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &RepoUi) {
+    let Some(id) = state.selected_issue.as_deref() else {
+        dim_label(ui, th, "Select an issue to view its details.");
+        return;
+    };
+    let Some(issue) = issues.iter().find(|i| i.id == id) else {
+        dim_label(ui, th, "Issue not found in snapshot.");
+        return;
+    };
+
+    title_2(ui, th, &issue.title);
+    ui.add_space(th.spacing.sm);
+    dim_label(
+        ui,
+        th,
+        &format!("{} · {} · {}", issue.state, issue.short_id, issue.author),
+    );
+    ui.add_space(th.spacing.md);
+    fill_scroll(ui, "issue_detail", true, |ui| {
+        if issue.description.is_empty() {
+            dim_label(ui, th, "(no description)");
+        } else if looks_like_md(&issue.description) {
+            markdown::render(ui, th, &issue.description);
+        } else {
+            body(ui, th, &issue.description);
+        }
+        if issue.replies > 0 {
+            ui.add_space(th.spacing.lg);
+            dim_label(
+                ui,
+                th,
+                &format!(
+                    "{} repl{} in thread",
+                    issue.replies,
+                    if issue.replies == 1 { "y" } else { "ies" }
+                ),
+            );
+        }
+    });
+}
+
+fn short_oid_display(oid: &str) -> &str {
+    if oid.len() > 7 { &oid[..7] } else { oid }
+}
+
+fn looks_like_md(text: &str) -> bool {
+    text.contains('\n')
+        || text.contains("```")
+        || text.contains("**")
+        || text.starts_with('#')
+        || text.contains("](")
+}
+
+fn patch_matches(p: &PatchRow, q: &str) -> bool {
+    if q.is_empty() {
+        return true;
+    }
+    p.title.to_lowercase().contains(q)
+        || p.id.to_lowercase().contains(q)
+        || p.short_id.to_lowercase().contains(q)
+        || p.author.to_lowercase().contains(q)
+        || p.state.to_lowercase().contains(q)
+        || p.description.to_lowercase().contains(q)
+        || p.head.to_lowercase().contains(q)
+        || p.base.to_lowercase().contains(q)
+}
+
+fn issue_matches(i: &IssueRow, q: &str) -> bool {
+    if q.is_empty() {
+        return true;
+    }
+    i.title.to_lowercase().contains(q)
+        || i.id.to_lowercase().contains(q)
+        || i.short_id.to_lowercase().contains(q)
+        || i.author.to_lowercase().contains(q)
+        || i.state.to_lowercase().contains(q)
+        || i.description.to_lowercase().contains(q)
+}
+
+/// Framed single-line search field matching the RID / repo-list inputs.
+fn search_field(ui: &mut egui::Ui, th: &Theme, text: &mut String, hint: &str) {
+    let h = th.spacing.control_height;
+    let w = ui.available_width().max(1.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
+
+    ui.painter().rect(
+        rect,
+        th.spacing.radius_md,
+        th.palette.view_bg,
+        Stroke::new(1.0_f32, th.palette.border_soft),
+        StrokeKind::Inside,
+    );
+
+    let pad_x = th.spacing.field_pad_x;
+    let edit_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + pad_x, rect.top()),
+        egui::pos2(rect.right() - pad_x, rect.bottom()),
+    );
+    ui.allocate_new_ui(
+        UiBuilder::new()
+            .max_rect(edit_rect)
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| {
+            ui.add(
+                egui::TextEdit::singleline(text)
+                    .frame(false)
+                    .desired_width(edit_rect.width())
+                    .margin(Margin::ZERO)
+                    .hint_text(hint),
+            );
+        },
+    );
+}
+
 fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Option<&Profile>) {
     if state.selected_commit.is_none() {
         card(ui, th, |ui| {
@@ -444,7 +830,8 @@ fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Opt
     }
 
     let gap = th.spacing.md;
-    let avail_h = remaining_height(ui);
+    // Already inside a height-capped pane — use residual height, not page clip.
+    let avail_h = ui.available_height().max(160.0);
     let paths_h = (avail_h * 0.28).clamp(100.0, 220.0);
 
     card(ui, th, |ui| {
