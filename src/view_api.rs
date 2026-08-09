@@ -17,6 +17,8 @@ pub struct ViewModel {
     pub strings: Vec<String>,
     pub files: Vec<FileRow>,
     pub commits: Vec<CommitRow>,
+    pub patches: Vec<PatchRow>,
+    pub issues: Vec<IssueRow>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +33,30 @@ pub struct CommitRow {
     pub summary: String,
     pub short_id: String,
     pub author: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PatchRow {
+    pub id: String,
+    pub short_id: String,
+    pub title: String,
+    pub state: String,
+    pub author: String,
+    pub description: String,
+    pub head: String,
+    pub base: String,
+    pub revisions: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct IssueRow {
+    pub id: String,
+    pub short_id: String,
+    pub title: String,
+    pub state: String,
+    pub author: String,
+    pub description: String,
+    pub replies: usize,
 }
 
 /// Decoded view op (Gleam → host).
@@ -58,7 +84,7 @@ pub enum Op {
     MdBody(usize),
     FileList(usize),
     CommitList(usize),
-    /// Side-by-side files + commits tabs browser.
+    /// Files / Commits / Patches / Issues tabs browser.
     RepoTabs,
     Unknown(i64),
 }
@@ -110,6 +136,8 @@ pub fn vocab(code: i64) -> &'static str {
         6 => "README",
         7 => "Files",
         8 => "Commits",
+        9 => "Patches",
+        10 => "Issues",
         _ => "?",
     }
 }
