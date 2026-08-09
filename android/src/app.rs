@@ -134,14 +134,20 @@ impl BrowseApp {
 
         match rad::open_repo(profile, &self.rid_input) {
             Ok(view) => {
-                self.repo_ui.reset_for(&view.rid, &view.head_oid, &view.files);
-                self.repo_ui.open_readme_if_present(profile, &view.files);
-                self.slots = Slots::from_view(&view);
-                self.err = None;
-                if let Some(m) = self.model {
-                    match gleam_guest::update(m, MSG_LOADED) {
-                        Ok(n) => self.model = Some(n),
-                        Err(e) => self.err = Some(e),
+                let already_viewing = self.model == Some(1) && self.repo_ui.rid == view.rid;
+                if already_viewing {
+                    self.apply_view_reload(&view);
+                    self.show_toast("Reloaded");
+                } else {
+                    self.repo_ui.reset_for(&view.rid, &view.head_oid, &view.files);
+                    self.repo_ui.open_readme_if_present(profile, &view.files);
+                    self.slots = Slots::from_view(&view);
+                    self.err = None;
+                    if let Some(m) = self.model {
+                        match gleam_guest::update(m, MSG_LOADED) {
+                            Ok(n) => self.model = Some(n),
+                            Err(e) => self.err = Some(e),
+                        }
                     }
                 }
             }
@@ -155,6 +161,65 @@ impl BrowseApp {
                         Err(e) => self.err = Some(e),
                     }
                 }
+            }
+        }
+    }
+
+    /// Refresh snapshot in place (keep tab + selection when still valid).
+    fn apply_view_reload(&mut self, view: &rad::RepoView) {
+        let keep = (
+            self.repo_ui.tab,
+            self.repo_ui.selected_patch.clone(),
+            self.repo_ui.selected_issue.clone(),
+            self.repo_ui.selected_job.clone(),
+            self.repo_ui.cwd.clone(),
+            self.repo_ui.selected_file.clone(),
+            self.repo_ui.selected_commit.clone(),
+            self.repo_ui.patch_status,
+            self.repo_ui.issue_status,
+            self.repo_ui.job_status,
+            self.repo_ui.patch_filter.clone(),
+            self.repo_ui.issue_filter.clone(),
+        );
+
+        self.repo_ui.head_oid = view.head_oid.clone();
+        self.repo_ui.tab = keep.0;
+        self.repo_ui.selected_patch = keep.1;
+        self.repo_ui.selected_issue = keep.2;
+        self.repo_ui.selected_job = keep.3;
+        self.repo_ui.cwd = keep.4;
+        self.repo_ui.selected_file = keep.5;
+        self.repo_ui.selected_commit = keep.6;
+        self.repo_ui.patch_status = keep.7;
+        self.repo_ui.issue_status = keep.8;
+        self.repo_ui.job_status = keep.9;
+        self.repo_ui.patch_filter = keep.10;
+        self.repo_ui.issue_filter = keep.11;
+        self.repo_ui.prune_cob_selections(&view.patches, &view.issues, &view.jobs);
+        self.repo_ui.reload_requested = false;
+        self.slots = Slots::from_view(view);
+        self.err = None;
+    }
+
+    fn reload_current(&mut self) {
+        let Some(profile) = &self.profile else {
+            return;
+        };
+        let rid = if self.rid_input.trim().is_empty() {
+            self.repo_ui.rid.clone()
+        } else {
+            self.rid_input.clone()
+        };
+        if rid.trim().is_empty() {
+            return;
+        }
+        match rad::open_repo(profile, &rid) {
+            Ok(view) => {
+                self.apply_view_reload(&view);
+                self.show_toast("Reloaded");
+            }
+            Err(e) => {
+                self.err = Some(e.to_string());
             }
         }
     }
@@ -235,9 +300,12 @@ impl eframe::App for BrowseApp {
                                 |ui| {
                                     ui.set_min_height(h);
                                     ui.set_max_height(h);
-                                    if primary_button(ui, &th, "Open").clicked() {
-                                        btn_open = true;
-                                    }
+                            if primary_button(ui, &th, "Open")
+                                .on_hover_text("Open repo; press again to reload")
+                                .clicked()
+                            {
+                                btn_open = true;
+                            }
                                     ui.add_space(th.spacing.sm);
 
                                     let rest = ui.available_width().max(1.0);
@@ -319,6 +387,10 @@ impl eframe::App for BrowseApp {
 
                             if let Some(err) = error {
                                 self.err = Some(err);
+                            }
+                            if self.repo_ui.reload_requested {
+                                self.reload_current();
+                                return;
                             }
                             if let Some(msg) = pending_msg {
                                 self.handle_msg(msg);

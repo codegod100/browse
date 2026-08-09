@@ -3,8 +3,9 @@
 use std::path::Path;
 
 use git2::{DiffFormat, DiffOptions, ObjectType};
-use radicle::cob::issue::cache::Issues as _;
-use radicle::cob::patch::cache::Patches as _;
+use radicle::cob::issue::Issues as IssueStore;
+use radicle::cob::patch::Patches as PatchStore;
+use radicle::cob::store::access::ReadOnly;
 use radicle::identity::DocAt;
 use radicle::prelude::RepoId;
 use radicle::storage::git::Repository;
@@ -120,9 +121,10 @@ pub fn open_repo(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError>
 
     let (readme, files) = readme_and_files(&repo, head)?;
     let commits = list_commits(&repo, head)?;
-    // COB cache can be missing/outdated; keep the repo view usable.
-    let patches = list_patches(profile, &repo).unwrap_or_default();
-    let issues = list_issues(profile, &repo).unwrap_or_default();
+    // Prefer live git COB stores so Open / tab re-press reloads pick up newly
+    // synced patches & issues even when the SQLite COB cache is stale.
+    let patches = list_patches(&repo).unwrap_or_default();
+    let issues = list_issues(&repo).unwrap_or_default();
     let jobs = list_jobs(&repo).unwrap_or_default();
 
     Ok(RepoView {
@@ -435,13 +437,11 @@ fn list_commits(
     Ok(commits)
 }
 
-fn list_patches(profile: &Profile, repo: &Repository) -> Result<Vec<PatchRow>, RadError> {
-    let patches = profile
-        .patches(repo)
-        .map_err(|e| RadError::Other(e.to_string()))?;
+fn list_patches(repo: &Repository) -> Result<Vec<PatchRow>, RadError> {
+    let patches = PatchStore::open(repo, ReadOnly).map_err(|e| RadError::Other(e.to_string()))?;
     let mut rows = Vec::new();
     for item in patches
-        .list()
+        .all()
         .map_err(|e| RadError::Other(e.to_string()))?
     {
         if rows.len() >= MAX_PATCHES {
@@ -468,13 +468,11 @@ fn list_patches(profile: &Profile, repo: &Repository) -> Result<Vec<PatchRow>, R
     Ok(rows)
 }
 
-fn list_issues(profile: &Profile, repo: &Repository) -> Result<Vec<IssueRow>, RadError> {
-    let issues = profile
-        .issues(repo)
-        .map_err(|e| RadError::Other(e.to_string()))?;
+fn list_issues(repo: &Repository) -> Result<Vec<IssueRow>, RadError> {
+    let issues = IssueStore::open(repo, ReadOnly).map_err(|e| RadError::Other(e.to_string()))?;
     let mut rows = Vec::new();
     for item in issues
-        .list()
+        .all()
         .map_err(|e| RadError::Other(e.to_string()))?
     {
         if rows.len() >= MAX_ISSUES {
