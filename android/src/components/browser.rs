@@ -1,4 +1,4 @@
-//! Interactive Files / Commits / Patches / Issues browser (host-owned selection).
+//! Interactive Files / Commits / Patches / Issues / Jobs browser (host-owned selection).
 
 use eframe::egui::{self, Align, CursorIcon, FontFamily, Layout, RichText, Sense, Vec2};
 use radicle::Profile;
@@ -6,7 +6,7 @@ use vidya::{body, button, card, dim_label, primary_button, side_by_side, title_2
 
 use crate::markdown;
 use crate::rad;
-use crate::view_api::{CommitRow, FileRow, IssueRow, PatchRow, ViewModel};
+use crate::view_api::{CommitRow, FileRow, IssueRow, JobRow, PatchRow, ViewModel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
@@ -15,6 +15,7 @@ pub enum Tab {
     Commits,
     Patches,
     Issues,
+    Jobs,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,6 +41,7 @@ pub struct RepoUi {
 
     pub selected_patch: Option<String>,
     pub selected_issue: Option<String>,
+    pub selected_job: Option<String>,
 }
 
 impl RepoUi {
@@ -188,6 +190,10 @@ impl RepoBrowser {
             tab_btn(ui, th, state.tab == Tab::Issues, "Issues", || {
                 state.tab = Tab::Issues;
             });
+            ui.add_space(th.spacing.sm);
+            tab_btn(ui, th, state.tab == Tab::Jobs, "Jobs", || {
+                state.tab = Tab::Jobs;
+            });
         });
         ui.add_space(th.spacing.md);
 
@@ -196,6 +202,7 @@ impl RepoBrowser {
             Tab::Commits => commits_tab(ui, th, model, state, profile),
             Tab::Patches => patches_tab(ui, th, model, state),
             Tab::Issues => issues_tab(ui, th, model, state),
+            Tab::Jobs => jobs_tab(ui, th, model, state),
         }
     }
 }
@@ -665,6 +672,141 @@ fn issue_detail(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &Repo
             );
         }
     });
+}
+
+fn jobs_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
+    let gap = th.spacing.lg;
+    let avail_w = ui.available_width();
+    let avail_h = remaining_height(ui);
+    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+
+    if side_by_side(avail_w, 220.0, gap) {
+        ui.allocate_ui_with_layout(
+            Vec2::new(avail_w, avail_h),
+            Layout::left_to_right(Align::Min),
+            |ui| {
+                ui.set_min_size(Vec2::new(avail_w, avail_h));
+                ui.set_max_size(Vec2::new(avail_w, avail_h));
+                pane(ui, list_w, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        job_list(ui, th, &model.jobs, state);
+                    });
+                });
+                ui.add_space(gap);
+                let rest = (avail_w - list_w - gap).max(1.0);
+                pane(ui, rest, avail_h, |ui| {
+                    card(ui, th, |ui| {
+                        job_detail(ui, th, &model.jobs, state);
+                    });
+                });
+            },
+        );
+    } else {
+        let half = ((avail_h - gap) * 0.4).max(120.0);
+        ui.set_min_height(avail_h);
+        card(ui, th, |ui| {
+            ui.set_min_height(half);
+            job_list(ui, th, &model.jobs, state);
+        });
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            job_detail(ui, th, &model.jobs, state);
+        });
+    }
+}
+
+fn job_list(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &mut RepoUi) {
+    title_2(ui, th, "Jobs");
+    ui.add_space(th.spacing.md);
+    if jobs.is_empty() {
+        dim_label(ui, th, "(no job COBs)");
+        return;
+    }
+    fill_scroll(ui, "tab_jobs", false, |ui| {
+        for job in jobs {
+            let selected = state.selected_job.as_deref() == Some(job.id.as_str());
+            let label = format!("[{}] {}", job.status, job.short_id);
+            let response = selectable_row(ui, th, &label, selected, false, true);
+            if response.clicked() {
+                state.selected_job = Some(job.id.clone());
+            }
+            dim_label(
+                ui,
+                th,
+                &format!(
+                    "commit {} · {} run{} · {} node{}",
+                    job.short_commit,
+                    job.run_count,
+                    if job.run_count == 1 { "" } else { "s" },
+                    job.node_count,
+                    if job.node_count == 1 { "" } else { "s" }
+                ),
+            );
+            ui.add_space(th.spacing.sm);
+        }
+    });
+}
+
+fn job_detail(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &RepoUi) {
+    let Some(id) = state.selected_job.as_deref() else {
+        dim_label(ui, th, "Select a job to view its runs.");
+        return;
+    };
+    let Some(job) = jobs.iter().find(|j| j.id == id) else {
+        dim_label(ui, th, "Job not found in snapshot.");
+        return;
+    };
+
+    title_2(ui, th, &format!("Job {}", job.short_id));
+    ui.add_space(th.spacing.sm);
+    dim_label(
+        ui,
+        th,
+        &format!(
+            "{} · commit {} · {} run{} across {} node{}",
+            job.status,
+            job.short_commit,
+            job.run_count,
+            if job.run_count == 1 { "" } else { "s" },
+            job.node_count,
+            if job.node_count == 1 { "" } else { "s" }
+        ),
+    );
+    ui.add_space(th.spacing.sm);
+    dim_label(ui, th, &format!("id {}", job.id));
+    ui.add_space(th.spacing.sm);
+    dim_label(ui, th, &format!("commit {}", job.commit));
+    ui.add_space(th.spacing.md);
+
+    fill_scroll(ui, "job_detail", true, |ui| {
+        if job.runs.is_empty() {
+            dim_label(ui, th, "(no runs yet)");
+            return;
+        }
+        for run in &job.runs {
+            body(
+                ui,
+                th,
+                &format!(
+                    "[{}] {} · {}",
+                    run.status,
+                    run.node,
+                    short_uuid(&run.run_id)
+                ),
+            );
+            dim_label(ui, th, &format!("log {}", run.log));
+            dim_label(ui, th, &format!("ts {}", run.timestamp_secs));
+            ui.add_space(th.spacing.md);
+        }
+    });
+}
+
+fn short_uuid(id: &str) -> &str {
+    if id.len() > 8 {
+        &id[..8]
+    } else {
+        id
+    }
 }
 
 fn short_oid_display(oid: &str) -> &str {
