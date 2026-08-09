@@ -53,6 +53,20 @@ fn run_smoke(rid: Option<&str>) -> eframe::Result {
     for c in view.commits.iter().take(8) {
         println!("  {}  {} — {}", c.short_id, c.summary, c.author);
     }
+    println!("patches: {}", view.patches.len());
+    for p in view.patches.iter().take(8) {
+        println!(
+            "  [{}] {}  {} — {}",
+            p.state, p.short_id, p.title, p.author
+        );
+    }
+    println!("issues: {}", view.issues.len());
+    for i in view.issues.iter().take(8) {
+        println!(
+            "  [{}] {}  {} — {}",
+            i.state, i.short_id, i.title, i.author
+        );
+    }
     if let Some(c) = view.commits.first() {
         match rad::commit_paths(&profile, &view.rid, &c.id) {
             Ok(paths) => {
