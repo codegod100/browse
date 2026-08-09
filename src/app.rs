@@ -37,6 +37,7 @@ struct BrowseApp {
     theme: Theme,
     profile: Option<Profile>,
     rid_input: String,
+    repo_filter: String,
     model: Option<i64>,
     slots: Slots,
     repo_ui: RepoUi,
@@ -73,6 +74,7 @@ impl BrowseApp {
             theme,
             profile,
             rid_input: initial_rid.unwrap_or_default(),
+            repo_filter: String::new(),
             model,
             slots: Slots::default(),
             repo_ui: RepoUi::default(),
@@ -147,6 +149,7 @@ impl BrowseApp {
                     if msg == MSG_BACK || n == 0 {
                         self.refresh_local_repos();
                         self.rid_input.clear();
+                        self.repo_filter.clear();
                     }
                     self.model = Some(n);
                     self.err = None;
@@ -249,7 +252,8 @@ impl eframe::App for BrowseApp {
                 if model == 0 {
                     let mut clicked = None;
                     card(ui, &th, |ui| {
-                        clicked = RepoList::show(ui, &th, &self.local_repos, &self.rid_input);
+                        clicked =
+                            RepoList::show(ui, &th, &self.local_repos, &mut self.repo_filter);
                     });
                     if let Some(rid) = clicked {
                         self.rid_input = rid;
@@ -381,7 +385,7 @@ fn rid_input_field(
                     .frame(false)
                     .desired_width(edit_rect.width())
                     .margin(Margin::ZERO)
-                    .hint_text("rad:z… or filter local repos"),
+                    .hint_text("rad:z…"),
             )
         },
     );
