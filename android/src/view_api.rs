@@ -17,6 +17,9 @@ pub struct ViewModel {
     pub strings: Vec<String>,
     pub files: Vec<FileRow>,
     pub commits: Vec<CommitRow>,
+    pub patches: Vec<PatchRow>,
+    pub issues: Vec<IssueRow>,
+    pub jobs: Vec<JobRow>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +34,56 @@ pub struct CommitRow {
     pub summary: String,
     pub short_id: String,
     pub author: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PatchRow {
+    pub id: String,
+    pub short_id: String,
+    pub title: String,
+    pub state: String,
+    pub author: String,
+    pub description: String,
+    pub head: String,
+    pub base: String,
+    pub revisions: usize,
+    /// Milliseconds since epoch (for sort / display).
+    pub updated_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct IssueRow {
+    pub id: String,
+    pub short_id: String,
+    pub title: String,
+    pub state: String,
+    pub author: String,
+    pub description: String,
+    pub replies: usize,
+    /// Milliseconds since epoch (for sort / display).
+    pub updated_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobRunRow {
+    pub node: String,
+    pub run_id: String,
+    pub status: String,
+    pub log: String,
+    pub timestamp_secs: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobRow {
+    pub id: String,
+    pub short_id: String,
+    pub commit: String,
+    pub short_commit: String,
+    pub status: String,
+    pub run_count: usize,
+    pub node_count: usize,
+    pub updated_secs: u64,
+    pub runs: Vec<JobRunRow>,
 }
 
 /// Decoded view op (Gleam → host).
@@ -58,7 +111,7 @@ pub enum Op {
     MdBody(usize),
     FileList(usize),
     CommitList(usize),
-    /// Side-by-side files + commits tabs browser.
+    /// Files / Commits / Patches / Issues / Jobs tabs browser.
     RepoTabs,
     Unknown(i64),
 }
@@ -110,6 +163,9 @@ pub fn vocab(code: i64) -> &'static str {
         6 => "README",
         7 => "Files",
         8 => "Commits",
+        9 => "Patches",
+        10 => "Issues",
+        11 => "Jobs",
         _ => "?",
     }
 }
