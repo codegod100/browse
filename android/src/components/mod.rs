@@ -7,7 +7,9 @@ mod meta;
 mod readme;
 mod repo_list;
 
-pub use browser::{RepoBrowser, RepoUi};
+pub use browser::{
+    IssueStatus, JobStatus, PatchStatus, RepoBrowser, RepoUi, Tab,
+};
 pub use commits::Commits;
 pub use files::Files;
 pub use meta::Meta;
