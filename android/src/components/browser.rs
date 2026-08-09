@@ -412,6 +412,11 @@ fn remaining_height(ui: &egui::Ui) -> f32 {
     (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(160.0)
 }
 
+/// Left list pane tracks a fraction of available width (no fixed px cap).
+fn list_pane_width(avail_w: f32, fraction: f32) -> f32 {
+    (avail_w * fraction).max(1.0)
+}
+
 fn files_tab(
     ui: &mut egui::Ui,
     th: &Theme,
@@ -422,7 +427,7 @@ fn files_tab(
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
     let avail_h = remaining_height(ui);
-    let list_w = (avail_w * 0.32).clamp(180.0, 280.0);
+    let list_w = list_pane_width(avail_w, 0.32);
 
     if side_by_side(avail_w, 200.0, gap) {
         ui.allocate_ui_with_layout(
@@ -469,7 +474,7 @@ fn commits_tab(
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
     let avail_h = remaining_height(ui);
-    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+    let list_w = list_pane_width(avail_w, 0.34);
 
     if side_by_side(avail_w, 220.0, gap) {
         ui.allocate_ui_with_layout(
@@ -643,7 +648,7 @@ fn patches_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Rep
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
     let avail_h = remaining_height(ui);
-    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+    let list_w = list_pane_width(avail_w, 0.34);
 
     if side_by_side(avail_w, 220.0, gap) {
         ui.allocate_ui_with_layout(
@@ -684,7 +689,7 @@ fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Repo
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
     let avail_h = remaining_height(ui);
-    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+    let list_w = list_pane_width(avail_w, 0.34);
 
     if side_by_side(avail_w, 220.0, gap) {
         ui.allocate_ui_with_layout(
@@ -988,7 +993,7 @@ fn jobs_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
     let avail_h = remaining_height(ui);
-    let list_w = (avail_w * 0.34).clamp(220.0, 320.0);
+    let list_w = list_pane_width(avail_w, 0.34);
 
     if side_by_side(avail_w, 220.0, gap) {
         ui.allocate_ui_with_layout(
