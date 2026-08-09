@@ -52,7 +52,7 @@ Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.glea
 | `android/` | Shared lib + Android NativeActivity (`cargo-apk`) |
 | `host/` | Desktop binary (`browse`) |
 | `android/gleam/browse/src/browse.gleam` | TEA + view DSL → opcodes |
-| `android/src/components/` | Meta, Readme, RepoBrowser (Files/Commits/Patches/Issues/Jobs tabs; search on patches & issues) |
+| `android/src/components/` | Meta, Readme, RepoBrowser (Files/Commits/Patches/Issues/Jobs; status tabs + search) |
 | `android/src/view_api.rs` | Host paint API (`Op` / `ViewModel` → components) |
 | `android/src/markdown.rs` | README via pulldown-cmark → Vidya text |
 | `android/src/rad.rs` | `Profile::load` + open by RID → snapshot |
