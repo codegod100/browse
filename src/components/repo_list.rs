@@ -1,6 +1,9 @@
 //! Startup page: local Radicle storage inventory under the RID field.
 
-use eframe::egui::{self, CursorIcon, RichText, Sense, Vec2};
+use eframe::egui::{
+    self, Align, CursorIcon, Layout, Margin, RichText, Sense, Stroke, StrokeKind, UiBuilder,
+    Vec2,
+};
 use vidya::{body, dim_label, title_2, Theme};
 
 use crate::rad::RepoSummary;
@@ -8,15 +11,17 @@ use crate::rad::RepoSummary;
 pub struct RepoList;
 
 impl RepoList {
-    /// Filter by name/RID substring (`query`), paint clickable rows.
+    /// Filter by name/RID/description substring (`query`), paint clickable rows.
     /// Returns a RID to open when a row is clicked.
     pub fn show(
         ui: &mut egui::Ui,
         th: &Theme,
         repos: &[RepoSummary],
-        query: &str,
+        query: &mut String,
     ) -> Option<String> {
         title_2(ui, th, "Local repos");
+        ui.add_space(th.spacing.sm);
+        search_field(ui, th, query);
         ui.add_space(th.spacing.sm);
 
         let q = query.trim().to_lowercase();
@@ -26,7 +31,9 @@ impl RepoList {
                 if q.is_empty() {
                     return true;
                 }
-                r.name.to_lowercase().contains(&q) || r.rid.to_lowercase().contains(&q)
+                r.name.to_lowercase().contains(&q)
+                    || r.rid.to_lowercase().contains(&q)
+                    || r.description.to_lowercase().contains(&q)
             })
             .collect();
 
@@ -34,13 +41,21 @@ impl RepoList {
             dim_label(ui, th, "No repositories in local storage yet.");
             return None;
         }
+        if !q.is_empty() {
+            dim_label(
+                ui,
+                th,
+                &format!("{} of {} repos", filtered.len(), repos.len()),
+            );
+            ui.add_space(th.spacing.xs);
+        }
         if filtered.is_empty() {
-            dim_label(ui, th, "No repos match this filter.");
+            dim_label(ui, th, "No repos match this search.");
             return None;
         }
 
         let mut open: Option<String> = None;
-        // Fill remaining viewport height (page scroll + card chrome).
+        // Fill remaining viewport height under the RID row / card chrome.
         let h = (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(200.0);
         egui::ScrollArea::vertical()
             .id_salt("local_repos")
@@ -92,4 +107,38 @@ fn repo_row(ui: &mut egui::Ui, th: &Theme, repo: &RepoSummary) -> egui::Response
 
     ui.add_space(th.spacing.md);
     response
+}
+
+fn search_field(ui: &mut egui::Ui, th: &Theme, text: &mut String) {
+    let h = th.spacing.control_height;
+    let w = ui.available_width().max(1.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
+
+    ui.painter().rect(
+        rect,
+        th.spacing.radius_md,
+        th.palette.view_bg,
+        Stroke::new(1.0_f32, th.palette.border_soft),
+        StrokeKind::Inside,
+    );
+
+    let pad_x = th.spacing.field_pad_x;
+    let edit_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + pad_x, rect.top()),
+        egui::pos2(rect.right() - pad_x, rect.bottom()),
+    );
+    ui.allocate_new_ui(
+        UiBuilder::new()
+            .max_rect(edit_rect)
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| {
+            ui.add(
+                egui::TextEdit::singleline(text)
+                    .frame(false)
+                    .desired_width(edit_rect.width())
+                    .margin(Margin::ZERO)
+                    .hint_text("Search by name, RID, or description…"),
+            );
+        },
+    );
 }

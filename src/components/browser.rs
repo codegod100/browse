@@ -197,8 +197,7 @@ fn tab_btn(ui: &mut egui::Ui, th: &Theme, active: bool, label: &str, on: impl Fn
 }
 
 fn remaining_height(ui: &egui::Ui) -> f32 {
-    // Prefer the visible clip region so we grow with the window, not the
-    // outer page ScrollArea's unbounded content height.
+    // Prefer the visible clip region so panes fill the central panel residual.
     (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(160.0)
 }
 
@@ -444,7 +443,8 @@ fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Opt
     }
 
     let gap = th.spacing.md;
-    let avail_h = remaining_height(ui);
+    // Already inside a height-capped pane — use residual height, not page clip.
+    let avail_h = ui.available_height().max(160.0);
     let paths_h = (avail_h * 0.28).clamp(100.0, 220.0);
 
     card(ui, th, |ui| {
