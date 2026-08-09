@@ -8,8 +8,8 @@ use eframe::egui::{
 };
 use radicle::Profile;
 use vidya::{
-    apply_dark, body, card, dim_label, grid_cols_with, paint_icon_in, primary_button, ColSpec,
-    GridOpts, Icon, Theme,
+    apply_dark, body, dim_label, grid_cols_with, paint_icon_in, primary_button, ColSpec, GridOpts,
+    Icon, Theme,
 };
 
 use crate::components::{RepoList, RepoUi};
@@ -361,18 +361,15 @@ impl eframe::App for BrowseApp {
                                 return;
                             };
 
-                            // Startup: recently viewed + local inventory under the RID row.
+                            // Startup: recently viewed + local inventory (full-bleed hover rows).
                             if model == 0 {
-                                let mut clicked = None;
-                                card(ui, &th, |ui| {
-                                    clicked = RepoList::show(
-                                        ui,
-                                        &th,
-                                        &self.recent_repos,
-                                        &self.local_repos,
-                                        &mut self.repo_filter,
-                                    );
-                                });
+                                let clicked = RepoList::show(
+                                    ui,
+                                    &th,
+                                    &self.recent_repos,
+                                    &self.local_repos,
+                                    &mut self.repo_filter,
+                                );
                                 if let Some(rid) = clicked {
                                     self.rid_input = rid;
                                     self.open_current();

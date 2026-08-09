@@ -1,8 +1,8 @@
 //! Startup page: recently viewed + local Radicle storage inventory under the RID field.
 
 use eframe::egui::{
-    self, Align, CursorIcon, Layout, Margin, RichText, Sense, Stroke, StrokeKind, UiBuilder,
-    Vec2,
+    self, Align, CursorIcon, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, StrokeKind,
+    UiBuilder, Vec2,
 };
 use vidya::{body, dim_label, title_2, Theme};
 
@@ -85,7 +85,7 @@ impl RepoList {
             return open;
         }
 
-        // Fill remaining viewport height under the RID row / card chrome.
+        // Fill remaining viewport height under the RID row.
         let h = (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(200.0);
         egui::ScrollArea::vertical()
             .id_salt("local_repos")
@@ -106,31 +106,43 @@ impl RepoList {
 }
 
 fn repo_row(ui: &mut egui::Ui, th: &Theme, repo: &RepoSummary) -> egui::Response {
+    let id = ui.id().with(&repo.rid);
+    let top = ui.cursor().top();
+
     let name = RichText::new(&repo.name)
         .size(th.type_scale.body)
         .color(th.palette.text);
-    let mut response = ui
-        .add(egui::Label::new(name).sense(Sense::click()).wrap())
-        .on_hover_cursor(CursorIcon::PointingHand);
+    ui.add(egui::Label::new(name).wrap());
 
     let rid = RichText::new(&repo.rid)
         .size(th.type_scale.caption)
         .color(th.palette.text_secondary);
-    let rid_r = ui
-        .add(egui::Label::new(rid).sense(Sense::click()).wrap())
-        .on_hover_cursor(CursorIcon::PointingHand);
-    response |= rid_r;
+    ui.add(egui::Label::new(rid).wrap());
 
     if !repo.description.is_empty() {
         body(ui, th, &repo.description);
     }
 
+    let bottom = ui.cursor().top();
+    // Hit the full content width so empty space beside the labels is active.
+    let hit = Rect::from_min_max(
+        Pos2::new(ui.max_rect().left(), top),
+        Pos2::new(ui.max_rect().right(), bottom),
+    );
+    let response = ui
+        .interact(hit, id, Sense::click())
+        .on_hover_cursor(CursorIcon::PointingHand);
+
     if response.hovered() || response.clicked() {
-        let rect = response.rect.expand2(Vec2::new(4.0, 2.0));
+        let screen = ui.ctx().screen_rect();
+        // Full viewport width; keep vertical clip so scroll doesn't leak.
+        let hover =
+            Rect::from_x_y_ranges(screen.x_range(), top..=bottom).expand2(Vec2::new(0.0, 2.0));
+        let paint_clip = Rect::from_x_y_ranges(screen.x_range(), ui.clip_rect().y_range());
         let a = th.palette.accent;
-        ui.painter().rect_filled(
-            rect,
-            th.spacing.radius_sm,
+        ui.painter().with_clip_rect(paint_clip).rect_filled(
+            hover,
+            0.0,
             egui::Color32::from_rgba_unmultiplied(a.r(), a.g(), a.b(), 28),
         );
     }
