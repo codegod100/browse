@@ -1,0 +1,3 @@
+{
+  "install": "set -euo pipefail\nSRC=\"$HOME/.local/share/codegod100-cursor\"\nif [ -d \"$SRC/.git\" ]; then\n  git -C \"$SRC\" fetch --depth 1 origin main\n  git -C \"$SRC\" reset --hard FETCH_HEAD\nelse\n  rm -rf \"$SRC\"\n  git clone --depth 1 --branch main https://github.com/codegod100/cursor.git \"$SRC\"\nfi\nbash \"$SRC/scripts/install-global.sh\"\ntest -f \"$HOME/.cursor/skills/boxci-github-patch/SKILL.md\""
+}
