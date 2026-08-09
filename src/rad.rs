@@ -455,10 +455,12 @@ fn list_patches(profile: &Profile, repo: &Repository) -> Result<Vec<PatchRow>, R
             head: patch.head().to_string(),
             base: patch.base().to_string(),
             revisions: patch.revisions().count(),
+            updated_ms: patch.updated_at().as_millis() as u64,
         });
     }
-    // Newest updates first (id is opaque; prefer title+state stability via reverse insert order).
-    rows.sort_by(|a, b| b.id.cmp(&a.id));
+    rows.sort_by(|a, b| {
+        open_first(&a.state, &b.state).then_with(|| b.updated_ms.cmp(&a.updated_ms))
+    });
     Ok(rows)
 }
 
@@ -485,10 +487,17 @@ fn list_issues(profile: &Profile, repo: &Repository) -> Result<Vec<IssueRow>, Ra
             author: short_did(&issue.author().to_string()),
             description: truncate_desc(issue.description()),
             replies,
+            updated_ms: issue.timestamp().as_millis() as u64,
         });
     }
-    rows.sort_by(|a, b| b.id.cmp(&a.id));
+    rows.sort_by(|a, b| {
+        open_first(&a.state, &b.state).then_with(|| b.updated_ms.cmp(&a.updated_ms))
+    });
     Ok(rows)
+}
+
+fn open_first(a: &str, b: &str) -> std::cmp::Ordering {
+    (b == "open").cmp(&(a == "open"))
 }
 
 fn short_oid(id: &str) -> String {

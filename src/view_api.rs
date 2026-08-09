@@ -46,6 +46,8 @@ pub struct PatchRow {
     pub head: String,
     pub base: String,
     pub revisions: usize,
+    /// Milliseconds since epoch (for sort / display).
+    pub updated_ms: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +59,8 @@ pub struct IssueRow {
     pub author: String,
     pub description: String,
     pub replies: usize,
+    /// Milliseconds since epoch (for sort / display).
+    pub updated_ms: u64,
 }
 
 /// Decoded view op (Gleam → host).
