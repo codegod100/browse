@@ -419,9 +419,11 @@ fn tab_btn(
     }
 }
 
-fn remaining_height(ui: &egui::Ui) -> f32 {
+fn remaining_height(ui: &egui::Ui, th: &Theme) -> f32 {
     // Prefer the visible clip region so panes fill the central panel residual.
-    (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(160.0)
+    // Leave page padding below the bottom panes so they are not flush with the
+    // viewport edge.
+    (ui.clip_rect().bottom() - ui.cursor().top() - th.spacing.page).max(160.0)
 }
 
 /// Left list pane tracks a fraction of available width (no fixed px cap).
@@ -438,7 +440,7 @@ fn files_tab(
 ) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui);
+    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.32);
 
     if side_by_side(avail_w, 200.0, gap) {
@@ -485,7 +487,7 @@ fn commits_tab(
 ) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui);
+    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.34);
 
     if side_by_side(avail_w, 220.0, gap) {
@@ -659,7 +661,7 @@ fn commit_list(
 fn patches_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui);
+    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.34);
 
     if side_by_side(avail_w, 220.0, gap) {
@@ -700,7 +702,7 @@ fn patches_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Rep
 fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui);
+    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.34);
 
     if side_by_side(avail_w, 220.0, gap) {
@@ -1006,7 +1008,7 @@ fn issue_detail(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &Repo
 fn jobs_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui);
+    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.34);
 
     if side_by_side(avail_w, 220.0, gap) {
