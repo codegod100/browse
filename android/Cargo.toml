@@ -61,6 +61,8 @@ eframe = { version = "0.31", default-features = false, features = [
 android_logger = "0.14"
 log = "0.4"
 winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
+# ClipboardManager JNI (NativeActivity has no egui OS clipboard).
+jni = "0.21"
 # Cross-compile OpenSSL for radicle/git2 on Android (no system libssl).
 openssl = { version = "0.10", features = ["vendored"] }
 

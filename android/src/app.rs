@@ -13,8 +13,6 @@ use vidya::{
     paint_icon_in, primary_button, reserve_system_chrome, set_clipboard_text, sync_soft_keyboard,
     title, ColSpec, GridOpts, Icon, Theme,
 };
-#[cfg(target_os = "android")]
-use vidya::{poll_clipboard_text, request_clipboard_text};
 
 use crate::components::{RepoList, RepoUi, Tab};
 use crate::gleam_bridge::{self, PaintResult, Slots, MSG_BACK, MSG_FAILED, MSG_LOADED, MSG_OPEN};
@@ -82,6 +80,8 @@ struct BrowseApp {
     load_rx: Option<Receiver<LoadOutcome>>,
     /// Waiting for Java UI-thread clipboard read (Android NativeActivity).
     paste_pending: bool,
+    /// When [`Self::paste_pending`] was set — times out hung UI-thread reads.
+    paste_started: Option<Instant>,
     /// Toast message, show time, and optional anchor (screen pos of the source chip).
     toast: Option<(String, Instant, Option<egui::Pos2>)>,
 }
@@ -132,6 +132,7 @@ impl BrowseApp {
             auto_open,
             load_rx: None,
             paste_pending: false,
+            paste_started: None,
             toast: None,
         }
     }
@@ -518,11 +519,12 @@ impl eframe::App for BrowseApp {
 
                             if paste_rid {
                                 // Android: clipboard JNI must run on the Java UI
-                                // thread — request now, apply when poll completes.
+                                // thread with a focused EditText (API 29+).
                                 #[cfg(target_os = "android")]
                                 {
-                                    request_clipboard_text();
+                                    crate::android_clipboard::request();
                                     self.paste_pending = true;
+                                    self.paste_started = Some(Instant::now());
                                     ui.ctx().request_repaint();
                                 }
                                 #[cfg(not(target_os = "android"))]
@@ -546,19 +548,31 @@ impl eframe::App for BrowseApp {
                             if self.paste_pending {
                                 #[cfg(target_os = "android")]
                                 {
-                                    match poll_clipboard_text() {
+                                    match crate::android_clipboard::poll() {
                                         None => {
-                                            // Still on the UI thread — keep painting.
-                                            ui.ctx().request_repaint();
+                                            let timed_out = self
+                                                .paste_started
+                                                .is_some_and(|t| t.elapsed() > Duration::from_secs(2));
+                                            if timed_out {
+                                                self.paste_pending = false;
+                                                self.paste_started = None;
+                                                self.show_toast(
+                                                    "Clipboard unavailable — copy a rad:z… ID, then Paste",
+                                                );
+                                            } else {
+                                                ui.ctx().request_repaint();
+                                            }
                                         }
                                         Some(None) => {
                                             self.paste_pending = false;
+                                            self.paste_started = None;
                                             self.show_toast(
                                                 "Clipboard unavailable — copy a rad:z… ID, then Paste",
                                             );
                                         }
                                         Some(Some(raw)) => {
                                             self.paste_pending = false;
+                                            self.paste_started = None;
                                             let pasted = normalize_paste(&raw);
                                             if pasted.is_empty() {
                                                 self.show_toast("Clipboard empty");
@@ -572,14 +586,17 @@ impl eframe::App for BrowseApp {
                                 #[cfg(not(target_os = "android"))]
                                 {
                                     self.paste_pending = false;
+                                    self.paste_started = None;
                                 }
                             }
                             if let Some(at) = copy_rid_at {
                                 let rid = self.rid_input.trim();
                                 if !rid.is_empty() {
-                                    // egui-winit has no Android OS clipboard; also write via Vidya.
+                                    // egui-winit has no Android OS clipboard; also write via Vidya + browse.
                                     ui.ctx().copy_text(rid.to_string());
                                     set_clipboard_text(rid);
+                                    #[cfg(target_os = "android")]
+                                    crate::android_clipboard::set_text(rid);
                                     self.show_toast_at("RID copied", at);
                                 }
                             }
