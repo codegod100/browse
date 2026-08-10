@@ -1,0 +1,19 @@
+---
+description: Create a boxci Radicle patch whenever you would open a PR
+alwaysApply: true
+---
+
+# Review proposals → [boxci](https://boxci.boxd.sh) patch (not GitHub PR)
+
+Whenever you would open or update a **pull request** (GitHub PR / MR / `ManagePullRequest` / `gh pr create`), do this instead:
+
+1. Commit and push the GitHub branch as usual.
+2. Open or update a **Radicle patch via [boxci](https://boxci.boxd.sh)** using the **`boxci-github-patch`** skill (`POST https://boxci.boxd.sh/api/patches/from-github`).
+3. Poll until `patch_id=` appears; report that id (and Garden URL) — not a GitHub PR URL.
+
+Do **not** use `ManagePullRequest`, `gh pr create`, `git push rad`, the `rad-patch` skill, or Radicle MCP `create_patch` unless the user explicitly asks for a GitHub PR or a local `rad` push.
+
+- RID: [`rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3`](https://nandi.radicle.garden/rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3)
+- Merge CI / APK: [boxci](https://boxci.boxd.sh) runs [`.boxci/pipeline.yml`](../../.boxci/pipeline.yml) (see also [`scripts/boxci/`](../../scripts/boxci/)).
+
+Details: [`AGENTS.md`](../../AGENTS.md) → **Cursor Cloud specific instructions**.
