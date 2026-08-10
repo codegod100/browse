@@ -235,9 +235,62 @@ pub fn read_file(
     Ok(text.to_string())
 }
 
+/// Changed paths for a single commit vs its first parent (or empty tree).
 pub fn commit_paths(profile: &Profile, rid: &str, commit_oid: &str) -> Result<Vec<String>, RadError> {
     let (_, repo) = open_storage(profile, rid)?;
-    let diff = tree_diff(&repo.backend, commit_oid)?;
+    let base = first_parent_oid(&repo.backend, commit_oid)?;
+    range_paths_in(&repo.backend, base.as_deref(), commit_oid)
+}
+
+/// Unified diff for one path in a commit vs its first parent.
+pub fn file_patch(
+    profile: &Profile,
+    rid: &str,
+    commit_oid: &str,
+    path: &str,
+) -> Result<String, RadError> {
+    let (_, repo) = open_storage(profile, rid)?;
+    let base = first_parent_oid(&repo.backend, commit_oid)?;
+    range_file_patch_in(&repo.backend, base.as_deref(), commit_oid, path)
+}
+
+/// Changed paths between two commits (e.g. patch base → head).
+pub fn range_paths(
+    profile: &Profile,
+    rid: &str,
+    base_oid: &str,
+    head_oid: &str,
+) -> Result<Vec<String>, RadError> {
+    let (_, repo) = open_storage(profile, rid)?;
+    range_paths_in(&repo.backend, Some(base_oid), head_oid)
+}
+
+/// Unified diff for one path between two commits.
+pub fn range_file_patch(
+    profile: &Profile,
+    rid: &str,
+    base_oid: &str,
+    head_oid: &str,
+    path: &str,
+) -> Result<String, RadError> {
+    let (_, repo) = open_storage(profile, rid)?;
+    range_file_patch_in(&repo.backend, Some(base_oid), head_oid, path)
+}
+
+fn first_parent_oid(repo: &git2::Repository, commit_oid: &str) -> Result<Option<String>, RadError> {
+    let oid = git2::Oid::from_str(commit_oid).map_err(|e| RadError::Other(e.to_string()))?;
+    let commit = repo
+        .find_commit(oid)
+        .map_err(|e| RadError::Other(e.to_string()))?;
+    Ok(commit.parents().next().map(|p| p.id().to_string()))
+}
+
+fn range_paths_in(
+    repo: &git2::Repository,
+    base_oid: Option<&str>,
+    head_oid: &str,
+) -> Result<Vec<String>, RadError> {
+    let diff = tree_diff_range(repo, base_oid, head_oid)?;
     let mut paths = Vec::new();
     diff.foreach(
         &mut |delta, _| {
@@ -262,33 +315,20 @@ pub fn commit_paths(profile: &Profile, rid: &str, commit_oid: &str) -> Result<Ve
     Ok(paths)
 }
 
-pub fn file_patch(
-    profile: &Profile,
-    rid: &str,
-    commit_oid: &str,
+fn range_file_patch_in(
+    repo: &git2::Repository,
+    base_oid: Option<&str>,
+    head_oid: &str,
     path: &str,
 ) -> Result<String, RadError> {
-    let (_, repo) = open_storage(profile, rid)?;
     let mut opts = DiffOptions::new();
     opts.pathspec(path);
     opts.context_lines(3);
-    let oid = git2::Oid::from_str(commit_oid).map_err(|e| RadError::Other(e.to_string()))?;
-    let commit = repo
-        .backend
-        .find_commit(oid)
-        .map_err(|e| RadError::Other(e.to_string()))?;
-    let new_tree = commit
-        .tree()
-        .map_err(|e| RadError::Other(e.to_string()))?;
-    let old_tree = commit
-        .parents()
-        .next()
-        .map(|p| p.tree())
-        .transpose()
-        .map_err(|e| RadError::Other(e.to_string()))?;
+    let old_tree = tree_for_oid(repo, base_oid)?;
+    let new_tree = tree_for_oid(repo, Some(head_oid))?
+        .ok_or_else(|| RadError::Other(format!("missing head commit {head_oid}")))?;
 
     let diff = repo
-        .backend
         .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))
         .map_err(|e| RadError::Other(e.to_string()))?;
 
@@ -316,23 +356,31 @@ pub fn file_patch(
     Ok(out)
 }
 
-fn tree_diff<'a>(
+fn tree_for_oid<'a>(
     repo: &'a git2::Repository,
-    commit_oid: &str,
-) -> Result<git2::Diff<'a>, RadError> {
-    let oid = git2::Oid::from_str(commit_oid).map_err(|e| RadError::Other(e.to_string()))?;
+    oid: Option<&str>,
+) -> Result<Option<git2::Tree<'a>>, RadError> {
+    let Some(oid) = oid else {
+        return Ok(None);
+    };
+    let oid = git2::Oid::from_str(oid).map_err(|e| RadError::Other(e.to_string()))?;
     let commit = repo
         .find_commit(oid)
         .map_err(|e| RadError::Other(e.to_string()))?;
-    let new_tree = commit
+    commit
         .tree()
-        .map_err(|e| RadError::Other(e.to_string()))?;
-    let old_tree = commit
-        .parents()
-        .next()
-        .map(|p| p.tree())
-        .transpose()
-        .map_err(|e| RadError::Other(e.to_string()))?;
+        .map(Some)
+        .map_err(|e| RadError::Other(e.to_string()))
+}
+
+fn tree_diff_range<'a>(
+    repo: &'a git2::Repository,
+    base_oid: Option<&str>,
+    head_oid: &str,
+) -> Result<git2::Diff<'a>, RadError> {
+    let old_tree = tree_for_oid(repo, base_oid)?;
+    let new_tree = tree_for_oid(repo, Some(head_oid))?
+        .ok_or_else(|| RadError::Other(format!("missing head commit {head_oid}")))?;
     let mut opts = DiffOptions::new();
     opts.patience(true).minimal(true);
     repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))

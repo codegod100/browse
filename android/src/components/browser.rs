@@ -146,6 +146,13 @@ pub struct RepoUi {
     pub commit_error: Option<String>,
 
     pub selected_patch: Option<String>,
+    pub patch_base: String,
+    pub patch_head: String,
+    pub patch_paths: Vec<String>,
+    pub selected_patch_diff_path: Option<String>,
+    pub patch_diff_text: String,
+    pub patch_error: Option<String>,
+
     pub selected_issue: Option<String>,
     pub selected_job: Option<String>,
 
@@ -187,7 +194,7 @@ impl RepoUi {
     ) {
         if let Some(id) = self.selected_patch.as_deref() {
             if !patches.iter().any(|p| p.id == id) {
-                self.selected_patch = None;
+                self.clear_patch_selection();
             }
         }
         if let Some(id) = self.selected_issue.as_deref() {
@@ -310,6 +317,61 @@ impl RepoUi {
             }
         }
     }
+
+    fn clear_patch_selection(&mut self) {
+        self.selected_patch = None;
+        self.patch_base.clear();
+        self.patch_head.clear();
+        self.patch_paths.clear();
+        self.selected_patch_diff_path = None;
+        self.patch_diff_text.clear();
+        self.patch_error = None;
+    }
+
+    fn select_patch(&mut self, profile: &Profile, patch: &PatchRow) {
+        self.selected_patch = Some(patch.id.clone());
+        self.patch_base = patch.base.clone();
+        self.patch_head = patch.head.clone();
+        self.selected_patch_diff_path = None;
+        self.patch_diff_text.clear();
+        self.patch_error = None;
+        match rad::range_paths(profile, &self.rid, &patch.base, &patch.head) {
+            Ok(paths) => {
+                self.patch_paths = paths;
+                if let Some(first) = self.patch_paths.first().cloned() {
+                    self.select_patch_diff_path(profile, &first);
+                }
+            }
+            Err(e) => {
+                self.patch_paths.clear();
+                self.patch_error = Some(e.to_string());
+            }
+        }
+    }
+
+    fn select_patch_diff_path(&mut self, profile: &Profile, path: &str) {
+        if self.selected_patch.is_none() || self.patch_base.is_empty() || self.patch_head.is_empty()
+        {
+            return;
+        }
+        self.selected_patch_diff_path = Some(path.to_string());
+        match rad::range_file_patch(
+            profile,
+            &self.rid,
+            &self.patch_base,
+            &self.patch_head,
+            path,
+        ) {
+            Ok(text) => {
+                self.patch_diff_text = text;
+                self.patch_error = None;
+            }
+            Err(e) => {
+                self.patch_diff_text.clear();
+                self.patch_error = Some(e.to_string());
+            }
+        }
+    }
 }
 
 pub struct RepoBrowser;
@@ -390,7 +452,7 @@ impl RepoBrowser {
         match state.tab {
             Tab::Files => files_tab(ui, th, model, state, profile),
             Tab::Commits => commits_tab(ui, th, model, state, profile),
-            Tab::Patches => patches_tab(ui, th, model, state),
+            Tab::Patches => patches_tab(ui, th, model, state, profile),
             Tab::Issues => issues_tab(ui, th, model, state),
             Tab::Jobs => jobs_tab(ui, th, model, state),
         }
@@ -659,7 +721,13 @@ fn commit_list(
     });
 }
 
-fn patches_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
+fn patches_tab(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    model: &ViewModel,
+    state: &mut RepoUi,
+    profile: Option<&Profile>,
+) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
     let avail_h = remaining_height(ui, th);
@@ -674,15 +742,13 @@ fn patches_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Rep
                 ui.set_max_size(Vec2::new(avail_w, avail_h));
                 pane(ui, list_w, avail_h, |ui| {
                     card(ui, th, |ui| {
-                        patch_list(ui, th, &model.patches, state);
+                        patch_list(ui, th, &model.patches, state, profile);
                     });
                 });
                 ui.add_space(gap);
                 let rest = (avail_w - list_w - gap).max(1.0);
                 pane(ui, rest, avail_h, |ui| {
-                    card(ui, th, |ui| {
-                        patch_detail(ui, th, &model.patches, state);
-                    });
+                    patch_detail(ui, th, &model.patches, state, profile);
                 });
             },
         );
@@ -691,12 +757,10 @@ fn patches_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Rep
         ui.set_min_height(avail_h);
         card(ui, th, |ui| {
             ui.set_min_height(half);
-            patch_list(ui, th, &model.patches, state);
+            patch_list(ui, th, &model.patches, state, profile);
         });
         ui.add_space(gap);
-        card(ui, th, |ui| {
-            patch_detail(ui, th, &model.patches, state);
-        });
+        patch_detail(ui, th, &model.patches, state, profile);
     }
 }
 
@@ -741,7 +805,13 @@ fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Repo
     }
 }
 
-fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut RepoUi) {
+fn patch_list(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    patches: &[PatchRow],
+    state: &mut RepoUi,
+    profile: Option<&Profile>,
+) {
     title_2(ui, th, "Patches");
     ui.add_space(th.spacing.sm);
     status_tabs(ui, th, PatchStatus::ALL, state.patch_status, |s| {
@@ -753,7 +823,7 @@ fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut R
                     .iter()
                     .any(|p| p.id == id && s.matches(&p.state));
                 if !keep {
-                    state.selected_patch = None;
+                    state.clear_patch_selection();
                 }
             }
         }
@@ -794,78 +864,148 @@ fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut R
         return;
     }
 
-    // Clone ids so we can mutate selection without borrow fights.
+    // Clone rows so we can mutate selection without borrow fights.
     let show_state = status == PatchStatus::All;
-    let rows: Vec<(String, String, String, String)> = filtered
-        .iter()
-        .map(|p| {
-            (
-                p.id.clone(),
-                p.state.clone(),
-                p.title.clone(),
-                format!("{} · {}", p.short_id, p.author),
-            )
-        })
-        .collect();
+    let rows: Vec<PatchRow> = filtered.into_iter().cloned().collect();
 
     fill_scroll(ui, "tab_patches", false, |ui| {
-        for (id, state_label, title, meta) in rows {
-            let selected = state.selected_patch.as_deref() == Some(id.as_str());
+        for p in rows {
+            let selected = state.selected_patch.as_deref() == Some(p.id.as_str());
             let label = if show_state {
-                format!("[{state_label}] {title}")
+                format!("[{}] {}", p.state, p.title)
             } else {
-                title
+                p.title.clone()
             };
-            let response = cob_list_row(ui, th, &id, &label, &meta, selected);
+            let meta = format!("{} · {}", p.short_id, p.author);
+            let response = cob_list_row(ui, th, &p.id, &label, &meta, selected);
             if response.clicked() {
-                state.selected_patch = Some(id);
+                if let Some(profile) = profile {
+                    state.select_patch(profile, &p);
+                } else {
+                    state.selected_patch = Some(p.id);
+                }
             }
         }
     });
 }
 
-fn patch_detail(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &RepoUi) {
-    let Some(id) = state.selected_patch.as_deref() else {
-        dim_label(ui, th, "Select a patch to view its details.");
+fn patch_detail(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    patches: &[PatchRow],
+    state: &mut RepoUi,
+    profile: Option<&Profile>,
+) {
+    let Some(id) = state.selected_patch.clone() else {
+        card(ui, th, |ui| {
+            dim_label(ui, th, "Select a patch to view its details.");
+        });
         return;
     };
-    let Some(p) = patches.iter().find(|p| p.id == id) else {
-        dim_label(ui, th, "Patch not found in snapshot.");
+    let Some(p) = patches.iter().find(|p| p.id == id).cloned() else {
+        card(ui, th, |ui| {
+            dim_label(ui, th, "Patch not found in snapshot.");
+        });
         return;
     };
 
-    title_2(ui, th, &p.title);
-    ui.add_space(th.spacing.sm);
-    dim_label(
-        ui,
-        th,
-        &format!(
-            "{} · {} · {} · {} revision{}",
-            p.state,
-            p.short_id,
-            p.author,
-            p.revisions,
-            if p.revisions == 1 { "" } else { "s" }
-        ),
-    );
-    ui.add_space(th.spacing.sm);
-    dim_label(
-        ui,
-        th,
-        &format!(
-            "base {} → head {}",
-            short_oid_display(&p.base),
-            short_oid_display(&p.head)
-        ),
-    );
-    ui.add_space(th.spacing.md);
-    fill_scroll(ui, "patch_detail", true, |ui| {
-        if p.description.is_empty() {
-            dim_label(ui, th, "(no description)");
-        } else if looks_like_md(&p.description) {
-            markdown::render(ui, th, &p.description);
+    let gap = th.spacing.md;
+    let avail_h = ui.available_height().max(160.0);
+
+    card(ui, th, |ui| {
+        title_2(ui, th, &p.title);
+        ui.add_space(th.spacing.sm);
+        dim_label(
+            ui,
+            th,
+            &format!(
+                "{} · {} · {} · {} revision{}",
+                p.state,
+                p.short_id,
+                p.author,
+                p.revisions,
+                if p.revisions == 1 { "" } else { "s" }
+            ),
+        );
+        ui.add_space(th.spacing.sm);
+        dim_label(
+            ui,
+            th,
+            &format!(
+                "base {} → head {}",
+                short_oid_display(&p.base),
+                short_oid_display(&p.head)
+            ),
+        );
+        ui.add_space(th.spacing.md);
+        let desc_h = (avail_h * 0.22).clamp(72.0, 160.0);
+        egui::ScrollArea::vertical()
+            .id_salt("patch_detail")
+            .max_height(desc_h)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                if p.description.is_empty() {
+                    dim_label(ui, th, "(no description)");
+                } else if looks_like_md(&p.description) {
+                    markdown::render(ui, th, &p.description);
+                } else {
+                    linkify::body(ui, th, &p.description);
+                }
+            });
+    });
+
+    if let Some(err) = &state.patch_error {
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            dim_label(ui, th, err);
+        });
+    }
+
+    ui.add_space(gap);
+
+    let paths_h = (avail_h * 0.22).clamp(88.0, 180.0);
+    card(ui, th, |ui| {
+        title_2(ui, th, "Changed files");
+        ui.add_space(th.spacing.sm);
+        if state.patch_paths.is_empty() {
+            dim_label(ui, th, "(no file changes)");
         } else {
-            linkify::body(ui, th, &p.description);
+            egui::ScrollArea::vertical()
+                .id_salt("patch_paths")
+                .max_height(paths_h)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    for path in state.patch_paths.clone() {
+                        let selected =
+                            state.selected_patch_diff_path.as_deref() == Some(path.as_str());
+                        let response = selectable_row(ui, th, &path, selected, false, true);
+                        if response.clicked() {
+                            if let Some(profile) = profile {
+                                state.select_patch_diff_path(profile, &path);
+                            }
+                        }
+                    }
+                });
+        }
+    });
+
+    ui.add_space(gap);
+
+    card(ui, th, |ui| {
+        let title = state
+            .selected_patch_diff_path
+            .as_deref()
+            .unwrap_or("Diff");
+        title_2(ui, th, title);
+        ui.add_space(th.spacing.md);
+        if state.patch_diff_text.is_empty() {
+            dim_label(ui, th, "Select a changed file to view the patch.");
+        } else {
+            fill_scroll(ui, "patch_diff_widget", true, |ui| {
+                diff_widget(ui, th, &state.patch_diff_text);
+            });
         }
     });
 }
