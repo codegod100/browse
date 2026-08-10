@@ -9,9 +9,12 @@ use eframe::egui::{
 };
 use radicle::Profile;
 use vidya::{
-    apply_dark, body, dim_label, grid_cols_with, paint_icon_in, primary_button, reserve_system_chrome,
+    apply_dark, body, button, clipboard_text, dim_label, grid_cols_with, normalize_paste,
+    paint_icon_in, primary_button, reserve_system_chrome, set_clipboard_text, sync_soft_keyboard,
     title, ColSpec, GridOpts, Icon, Theme,
 };
+#[cfg(target_os = "android")]
+use vidya::{poll_clipboard_text, request_clipboard_text};
 
 use crate::components::{RepoList, RepoUi, Tab};
 use crate::gleam_bridge::{self, PaintResult, Slots, MSG_BACK, MSG_FAILED, MSG_LOADED, MSG_OPEN};
@@ -77,6 +80,8 @@ struct BrowseApp {
     auto_open: bool,
     /// In-flight `rad::open_repo` (Open / tab reload). Keeps the UI thread free.
     load_rx: Option<Receiver<LoadOutcome>>,
+    /// Waiting for Java UI-thread clipboard read (Android NativeActivity).
+    paste_pending: bool,
     /// Toast message, show time, and optional anchor (screen pos of the source chip).
     toast: Option<(String, Instant, Option<egui::Pos2>)>,
 }
@@ -126,6 +131,7 @@ impl BrowseApp {
             err,
             auto_open,
             load_rx: None,
+            paste_pending: false,
             toast: None,
         }
     }
@@ -454,6 +460,7 @@ impl eframe::App for BrowseApp {
 
                             let mut enter_open = false;
                             let mut btn_open = false;
+                            let mut paste_rid = false;
                             let mut copy_rid_at = None;
 
                             let h = th.spacing.control_height;
@@ -476,6 +483,15 @@ impl eframe::App for BrowseApp {
                             {
                                 btn_open = true;
                             }
+                                    ui.add_space(th.spacing.sm);
+                                    // Full-height Paste control — NativeActivity has no
+                                    // soft-keyboard / long-press paste into TextEdit.
+                                    if button(ui, &th, "Paste")
+                                        .on_hover_text("Paste RID from the system clipboard")
+                                        .clicked()
+                                    {
+                                        paste_rid = true;
+                                    }
                                     ui.add_space(th.spacing.sm);
 
                                     let rest = ui.available_width().max(1.0);
@@ -500,10 +516,70 @@ impl eframe::App for BrowseApp {
                                 },
                             );
 
+                            if paste_rid {
+                                // Android: clipboard JNI must run on the Java UI
+                                // thread — request now, apply when poll completes.
+                                #[cfg(target_os = "android")]
+                                {
+                                    request_clipboard_text();
+                                    self.paste_pending = true;
+                                    ui.ctx().request_repaint();
+                                }
+                                #[cfg(not(target_os = "android"))]
+                                {
+                                    match clipboard_text() {
+                                        Some(raw) => {
+                                            let pasted = normalize_paste(&raw);
+                                            if pasted.is_empty() {
+                                                self.show_toast("Clipboard empty");
+                                            } else {
+                                                self.rid_input = pasted;
+                                                self.show_toast("RID pasted");
+                                            }
+                                        }
+                                        None => self.show_toast(
+                                            "Clipboard unavailable — copy a rad:z… ID, then Paste",
+                                        ),
+                                    }
+                                }
+                            }
+                            if self.paste_pending {
+                                #[cfg(target_os = "android")]
+                                {
+                                    match poll_clipboard_text() {
+                                        None => {
+                                            // Still on the UI thread — keep painting.
+                                            ui.ctx().request_repaint();
+                                        }
+                                        Some(None) => {
+                                            self.paste_pending = false;
+                                            self.show_toast(
+                                                "Clipboard unavailable — copy a rad:z… ID, then Paste",
+                                            );
+                                        }
+                                        Some(Some(raw)) => {
+                                            self.paste_pending = false;
+                                            let pasted = normalize_paste(&raw);
+                                            if pasted.is_empty() {
+                                                self.show_toast("Clipboard empty");
+                                            } else {
+                                                self.rid_input = pasted;
+                                                self.show_toast("RID pasted");
+                                            }
+                                        }
+                                    }
+                                }
+                                #[cfg(not(target_os = "android"))]
+                                {
+                                    self.paste_pending = false;
+                                }
+                            }
                             if let Some(at) = copy_rid_at {
                                 let rid = self.rid_input.trim();
                                 if !rid.is_empty() {
+                                    // egui-winit has no Android OS clipboard; also write via Vidya.
                                     ui.ctx().copy_text(rid.to_string());
+                                    set_clipboard_text(rid);
                                     self.show_toast_at("RID copied", at);
                                 }
                             }
@@ -622,6 +698,9 @@ impl eframe::App for BrowseApp {
                 .as_ref()
                 .map(|(m, _, at)| (m.as_str(), *at)),
         );
+
+        // After widgets: show/hide the soft keyboard when a TextEdit has focus.
+        sync_soft_keyboard(ctx);
     }
 }
 
@@ -695,6 +774,9 @@ struct RidFieldResult {
 }
 
 /// Framed RID field of exact height `h`, with a vertically centered in-field copy icon.
+///
+/// Paste lives in a separate full-size button next to Open — soft-keyboard /
+/// long-press paste does not reach TextEdit on NativeActivity.
 fn rid_input_field(
     ui: &mut egui::Ui,
     th: &Theme,

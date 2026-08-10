@@ -89,10 +89,19 @@
           cp -a ${browseFiltered}/. $out/browse/
           cp -a ${vidya}/. $out/vidya/
           chmod -R u+w $out
-          # Older tips of vidya referenced winit on Android without declaring it.
-          if [ -f ${./patches/vidya-android-winit.patch} ]; then
-            patch -p1 -d $out/vidya --forward --batch \
-              < ${./patches/vidya-android-winit.patch} || true
+          # Soft keyboard + clipboard API (includes android winit dep). Fall
+          # back to the older winit-only patch when the tip already ships it.
+          if [ -f ${./patches/vidya-keyboard-api.patch} ] \
+            && patch -p1 -d $out/vidya --forward --batch \
+              < ${./patches/vidya-keyboard-api.patch}; then
+            true
+          else
+            rm -f $out/vidya/*.rej $out/vidya/Cargo.toml.rej 2>/dev/null || true
+            if [ -f ${./patches/vidya-android-winit.patch} ]; then
+              patch -p1 -d $out/vidya --forward --batch \
+                < ${./patches/vidya-android-winit.patch} || true
+              rm -f $out/vidya/*.rej $out/vidya/Cargo.toml.rej 2>/dev/null || true
+            fi
           fi
           rm -rf $out/browse/{.git,host/target,android/target} 2>/dev/null || true
         '';
