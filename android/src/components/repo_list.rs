@@ -85,8 +85,8 @@ impl RepoList {
             return open;
         }
 
-        // Fill remaining viewport height under the RID row.
-        let h = (ui.clip_rect().bottom() - ui.cursor().top() - 12.0).max(200.0);
+        // Fill remaining viewport height; leave page padding below the card.
+        let h = (ui.clip_rect().bottom() - ui.cursor().top() - th.spacing.page).max(200.0);
         egui::ScrollArea::vertical()
             .id_salt("local_repos")
             .max_height(h)

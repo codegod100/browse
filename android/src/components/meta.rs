@@ -23,5 +23,7 @@ impl Meta {
         dim_label(ui, th, rid);
         ui.add_space(th.spacing.xs);
         dim_label(ui, th, head);
+        // Extra bottom padding so the last line is not flush against the card edge.
+        ui.add_space(th.spacing.md);
     }
 }
