@@ -8,8 +8,8 @@ use eframe::egui::{
 };
 use radicle::Profile;
 use vidya::{
-    apply_dark, body, dim_label, grid_cols_with, paint_icon_in, primary_button, title, ColSpec,
-    GridOpts, Icon, Theme,
+    apply_dark, body, dim_label, grid_cols_with, paint_icon_in, primary_button, reserve_system_chrome,
+    title, ColSpec, GridOpts, Icon, Theme,
 };
 
 use crate::components::{RepoList, RepoUi, Tab};
@@ -323,6 +323,10 @@ impl eframe::App for BrowseApp {
                 self.open_current();
             }
         }
+
+        // Android edge-to-edge: clear status / gesture bars before CentralPanel.
+        // No-op on desktop. See vidya::reserve_system_chrome / top_header.
+        reserve_system_chrome(ctx, &th);
 
         // Fixed central shell (no page ScrollArea): fill-height lists/panes own
         // scrolling so we do not nest solid gutters (double scrollbar).
