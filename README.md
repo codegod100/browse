@@ -16,7 +16,7 @@ nix run . -- --smoke rad:z1ocacrfUUDHaSpspzjX5bUYf36w
 nix build            # hermetic desktop binary (uses android/gleam/browse/prebuilt/browse.wasm)
 ```
 
-Needs a local Radicle profile with the repo seeded. Live Gleam rebuilds use a wasm-capable Gleam (`~/code/gleam` on branch `wasm`); `nix build` falls back to the vendored prebuilt Wasm.
+Needs a local Radicle profile with the repo seeded. On first launch (including the Android APK), Browse shows a **Create profile** form when none exists — same as `rad auth` (alias + optional passphrase under `$RAD_HOME` / app-private storage). Live Gleam rebuilds use a wasm-capable Gleam (`~/code/gleam` on branch `wasm`); `nix build` falls back to the vendored prebuilt Wasm.
 
 Patches / issues / jobs are a local snapshot — they do **not** auto-refresh. Press **Open** again (same RID) or re-press the active **Patches** / **Issues** / **Jobs** tab to reload from local storage.
 
@@ -59,7 +59,7 @@ Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.glea
 | `android/src/components/` | Meta, Readme, RepoBrowser (Files/Commits/Patches/Issues/Jobs; status tabs + search) |
 | `android/src/view_api.rs` | Host paint API (`Op` / `ViewModel` → components) |
 | `android/src/markdown.rs` | README via pulldown-cmark → Vidya text |
-| `android/src/rad.rs` | `Profile::load` + open by RID → snapshot |
+| `android/src/rad.rs` | `Profile::load` / `create_profile` + open by RID → snapshot |
 | `android/src/gleam_guest.rs` | wasmtime + `browse__*` exports |
 | `android/src/gleam_bridge.rs` | opcode fetch → `view_api` |
 | `android/src/app.rs` | window, RID field, Open effect |
