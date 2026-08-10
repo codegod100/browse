@@ -19,6 +19,7 @@ use crate::gleam_guest;
 use crate::rad::{self, RepoSummary, RepoView};
 use crate::recent::{self, RecentRepo};
 use crate::tab_prefs::{self, TabPrefsStore};
+use crate::view_api::ui_label;
 
 const TOAST_SECS: u64 = 2;
 
@@ -463,8 +464,12 @@ impl eframe::App for BrowseApp {
                                 |ui| {
                                     ui.set_min_height(h);
                                     ui.set_max_height(h);
-                            let open_label = if self.is_loading() { "Loading…" } else { "Open" };
-                            if primary_button(ui, &th, open_label)
+                            let open_label = if self.is_loading() {
+                                "Loading…".to_string()
+                            } else {
+                                ui_label(2)
+                            };
+                            if primary_button(ui, &th, &open_label)
                                 .on_hover_text("Open repo; press again to reload")
                                 .clicked()
                                 && !self.is_loading()
@@ -481,7 +486,7 @@ impl eframe::App for BrowseApp {
                                             ui.set_min_height(h);
                                             ui.set_max_height(h);
                                             ui.spacing_mut().item_spacing.x = th.spacing.sm;
-                                            ui.label("RID");
+                                            ui.label(ui_label(3));
                                             let field =
                                                 rid_input_field(ui, &th, &mut self.rid_input, h);
                                             if let Some(at) = field.copy_clicked_at {
@@ -519,8 +524,37 @@ impl eframe::App for BrowseApp {
                                 return;
                             };
 
-                            // Startup: recently viewed + local inventory (full-bleed hover rows).
+                            // Startup: Gleam enter chrome (help/about) then host inventory.
                             if model == 0 {
+                                self.slots =
+                                    Slots::for_enter(&self.local_repos, &self.repo_filter);
+                                let PaintResult {
+                                    pending_msg,
+                                    open_rid,
+                                    error,
+                                } = gleam_bridge::paint(
+                                    ui,
+                                    &th,
+                                    model,
+                                    &self.slots,
+                                    &mut self.repo_ui,
+                                    self.profile.as_ref(),
+                                );
+                                if let Some(err) = error {
+                                    self.err = Some(err);
+                                }
+                                if let Some(rid) = open_rid {
+                                    self.rid_input = rid;
+                                    self.open_current(ui.ctx());
+                                    return;
+                                }
+                                if let Some(msg) = pending_msg {
+                                    if !self.is_loading() {
+                                        self.handle_msg(ui.ctx(), msg);
+                                    }
+                                    return;
+                                }
+
                                 let clicked = if self.is_loading() {
                                     None
                                 } else {
@@ -546,6 +580,7 @@ impl eframe::App for BrowseApp {
 
                             let PaintResult {
                                 pending_msg,
+                                open_rid,
                                 error,
                             } = gleam_bridge::paint(
                                 ui,
@@ -558,6 +593,11 @@ impl eframe::App for BrowseApp {
 
                             if let Some(err) = error {
                                 self.err = Some(err);
+                            }
+                            if let Some(rid) = open_rid {
+                                self.rid_input = rid;
+                                self.open_current(ui.ctx());
+                                return;
                             }
                             if self.repo_ui.reload_requested {
                                 // Clear immediately and load off-thread so the click

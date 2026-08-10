@@ -10,7 +10,7 @@ use vidya::{body, button, card, dim_label, primary_button, side_by_side, title_2
 use crate::linkify;
 use crate::markdown;
 use crate::rad;
-use crate::view_api::{CommitRow, FileRow, IssueRow, JobRow, PatchRow, ViewModel};
+use crate::view_api::{CommitRow, FileRow, IssueRow, JobRow, PatchRow, ViewModel, ui_label};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
@@ -323,14 +323,19 @@ impl RepoBrowser {
         profile: Option<&Profile>,
     ) {
         ui.horizontal(|ui| {
-            tab_btn(ui, th, state.tab == Tab::Files, "Files", None, || {
+            let files = ui_label(5);
+            let commits = ui_label(6);
+            let patches = ui_label(26);
+            let issues = ui_label(27);
+            let jobs = ui_label(28);
+            tab_btn(ui, th, state.tab == Tab::Files, &files, None, || {
                 if state.tab != Tab::Files {
                     state.tab = Tab::Files;
                     state.prefs_dirty = true;
                 }
             });
             ui.add_space(th.spacing.sm);
-            tab_btn(ui, th, state.tab == Tab::Commits, "Commits", None, || {
+            tab_btn(ui, th, state.tab == Tab::Commits, &commits, None, || {
                 if state.tab != Tab::Commits {
                     state.tab = Tab::Commits;
                     state.prefs_dirty = true;
@@ -341,7 +346,7 @@ impl RepoBrowser {
                 ui,
                 th,
                 state.tab == Tab::Patches,
-                "Patches",
+                &patches,
                 Some("Press again to reload"),
                 || {
                     if state.tab == Tab::Patches {
@@ -357,7 +362,7 @@ impl RepoBrowser {
                 ui,
                 th,
                 state.tab == Tab::Issues,
-                "Issues",
+                &issues,
                 Some("Press again to reload"),
                 || {
                     if state.tab == Tab::Issues {
@@ -373,7 +378,7 @@ impl RepoBrowser {
                 ui,
                 th,
                 state.tab == Tab::Jobs,
-                "Jobs",
+                &jobs,
                 Some("Press again to reload"),
                 || {
                     if state.tab == Tab::Jobs {
