@@ -529,7 +529,10 @@ fn paint_toast(ctx: &egui::Context, th: &Theme, toast: Option<(&str, Option<egui
     // Prefer anchoring just under the source chip; fall back to bottom-center.
     let mut area = egui::Area::new(egui::Id::new("toast"))
         .order(egui::Order::Foreground)
-        .interactable(false);
+        .interactable(false)
+        // First-frame width under Vidya's global Wrap; avoids mid-phrase breaks
+        // when the Area is constrained (e.g. chip near the right edge).
+        .default_width(ctx.style().spacing.tooltip_width);
     area = if let Some(at) = anchor {
         let gap = th.spacing.xs;
         area.pivot(egui::Align2::CENTER_TOP)
@@ -553,10 +556,13 @@ fn paint_toast(ctx: &egui::Context, th: &Theme, toast: Option<(&str, Option<egui
                 color: th.palette.shade,
             })
             .show(ui, |ui| {
-                ui.label(
-                    RichText::new(msg)
-                        .size(th.type_scale.body)
-                        .color(th.palette.text),
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(msg)
+                            .size(th.type_scale.body)
+                            .color(th.palette.text),
+                    )
+                    .extend(),
                 );
             });
     });
