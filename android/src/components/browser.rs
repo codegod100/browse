@@ -1,8 +1,8 @@
 //! Interactive Files / Commits / Patches / Issues / Jobs browser (host-owned selection).
 
 use eframe::egui::{
-    self, Align, CursorIcon, FontFamily, Layout, Margin, RichText, Sense, Stroke, StrokeKind,
-    UiBuilder, Vec2,
+    self, Align, CursorIcon, FontFamily, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke,
+    StrokeKind, UiBuilder, Vec2,
 };
 use radicle::Profile;
 use vidya::{body, button, card, dim_label, primary_button, side_by_side, title_2, Theme};
@@ -814,12 +814,10 @@ fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut R
             } else {
                 title
             };
-            let response = selectable_row(ui, th, &label, selected, false, true);
+            let response = cob_list_row(ui, th, &id, &label, &meta, selected);
             if response.clicked() {
                 state.selected_patch = Some(id);
             }
-            dim_label(ui, th, &meta);
-            ui.add_space(th.spacing.sm);
         }
     });
 }
@@ -953,12 +951,10 @@ fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut Re
             } else {
                 title
             };
-            let response = selectable_row(ui, th, &label, selected, false, true);
+            let response = cob_list_row(ui, th, &id, &label, &meta, selected);
             if response.clicked() {
                 state.selected_issue = Some(id);
             }
-            dim_label(ui, th, &meta);
-            ui.add_space(th.spacing.sm);
         }
     });
 }
@@ -1110,12 +1106,10 @@ fn job_list(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &mut RepoUi) 
             } else {
                 short_id
             };
-            let response = selectable_row(ui, th, &label, selected, false, true);
+            let response = cob_list_row(ui, th, &id, &label, &meta, selected);
             if response.clicked() {
                 state.selected_job = Some(id);
             }
-            dim_label(ui, th, &meta);
-            ui.add_space(th.spacing.sm);
         }
     });
 }
@@ -1398,6 +1392,56 @@ fn selectable_row(
             egui::Color32::from_rgba_unmultiplied(a.r(), a.g(), a.b(), 36),
         );
     }
+    response
+}
+
+/// Title + meta as one full-width click target (not just the title glyph bounds).
+fn cob_list_row(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    id: &str,
+    title: &str,
+    meta: &str,
+    selected: bool,
+) -> egui::Response {
+    let interact_id = ui.id().with("cob_row").with(id);
+    let top = ui.cursor().top();
+
+    let color = if selected {
+        th.palette.accent
+    } else {
+        th.palette.text
+    };
+    ui.add(
+        egui::Label::new(
+            RichText::new(title)
+                .size(th.type_scale.body)
+                .color(color),
+        )
+        .wrap(),
+    );
+    dim_label(ui, th, meta);
+
+    let bottom = ui.cursor().top();
+    let hit = Rect::from_min_max(
+        Pos2::new(ui.max_rect().left(), top),
+        Pos2::new(ui.max_rect().right(), bottom),
+    );
+    let response = ui
+        .interact(hit, interact_id, Sense::click())
+        .on_hover_cursor(CursorIcon::PointingHand);
+
+    if selected || response.hovered() {
+        let a = th.palette.accent;
+        let alpha = if selected { 36 } else { 28 };
+        ui.painter().rect_filled(
+            hit.expand2(Vec2::new(0.0, 2.0)),
+            th.spacing.radius_sm,
+            egui::Color32::from_rgba_unmultiplied(a.r(), a.g(), a.b(), alpha),
+        );
+    }
+
+    ui.add_space(th.spacing.sm);
     response
 }
 
