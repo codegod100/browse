@@ -162,6 +162,9 @@ pub struct RepoUi {
     pub patch_filter: String,
     /// Substring filter for the Issues tab list.
     pub issue_filter: String,
+
+    /// Set when tab or status filters change so the host can persist prefs.
+    pub prefs_dirty: bool,
 }
 
 impl RepoUi {
@@ -320,11 +323,17 @@ impl RepoBrowser {
     ) {
         ui.horizontal(|ui| {
             tab_btn(ui, th, state.tab == Tab::Files, "Files", None, || {
-                state.tab = Tab::Files;
+                if state.tab != Tab::Files {
+                    state.tab = Tab::Files;
+                    state.prefs_dirty = true;
+                }
             });
             ui.add_space(th.spacing.sm);
             tab_btn(ui, th, state.tab == Tab::Commits, "Commits", None, || {
-                state.tab = Tab::Commits;
+                if state.tab != Tab::Commits {
+                    state.tab = Tab::Commits;
+                    state.prefs_dirty = true;
+                }
             });
             ui.add_space(th.spacing.sm);
             tab_btn(
@@ -338,6 +347,7 @@ impl RepoBrowser {
                         state.reload_requested = true;
                     } else {
                         state.tab = Tab::Patches;
+                        state.prefs_dirty = true;
                     }
                 },
             );
@@ -353,6 +363,7 @@ impl RepoBrowser {
                         state.reload_requested = true;
                     } else {
                         state.tab = Tab::Issues;
+                        state.prefs_dirty = true;
                     }
                 },
             );
@@ -368,6 +379,7 @@ impl RepoBrowser {
                         state.reload_requested = true;
                     } else {
                         state.tab = Tab::Jobs;
+                        state.prefs_dirty = true;
                     }
                 },
             );
@@ -732,6 +744,7 @@ fn patch_list(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &mut R
     status_tabs(ui, th, PatchStatus::ALL, state.patch_status, |s| {
         if state.patch_status != s {
             state.patch_status = s;
+            state.prefs_dirty = true;
             if let Some(id) = state.selected_patch.as_deref() {
                 let keep = patches
                     .iter()
@@ -862,6 +875,7 @@ fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut Re
     status_tabs(ui, th, IssueStatus::ALL, state.issue_status, |s| {
         if state.issue_status != s {
             state.issue_status = s;
+            state.prefs_dirty = true;
             if let Some(id) = state.selected_issue.as_deref() {
                 let keep = issues
                     .iter()
@@ -1036,6 +1050,7 @@ fn job_list(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &mut RepoUi) 
     status_tabs(ui, th, JobStatus::ALL, state.job_status, |s| {
         if state.job_status != s {
             state.job_status = s;
+            state.prefs_dirty = true;
             if let Some(id) = state.selected_job.as_deref() {
                 let keep = jobs.iter().any(|j| j.id == id && s.matches(&j.status));
                 if !keep {
