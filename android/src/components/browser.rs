@@ -915,104 +915,117 @@ fn patch_detail(
     };
 
     let gap = th.spacing.md;
+    // Captured from the (unscrolled) pane before the outer ScrollArea below
+    // makes available_height effectively unbounded, so the fixed-size
+    // description/paths boxes keep sane proportions instead of collapsing.
     let avail_h = ui.available_height().max(160.0);
 
-    card(ui, th, |ui| {
-        title_2(ui, th, &p.title);
-        ui.add_space(th.spacing.sm);
-        dim_label(
-            ui,
-            th,
-            &format!(
-                "{} · {} · {} · {} revision{}",
-                p.state,
-                p.short_id,
-                p.author,
-                p.revisions,
-                if p.revisions == 1 { "" } else { "s" }
-            ),
-        );
-        ui.add_space(th.spacing.sm);
-        dim_label(
-            ui,
-            th,
-            &format!(
-                "base {} → head {}",
-                short_oid_display(&p.base),
-                short_oid_display(&p.head)
-            ),
-        );
-        ui.add_space(th.spacing.md);
-        let desc_h = (avail_h * 0.22).clamp(72.0, 160.0);
-        egui::ScrollArea::vertical()
-            .id_salt("patch_detail")
-            .max_height(desc_h)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                if p.description.is_empty() {
-                    dim_label(ui, th, "(no description)");
-                } else if looks_like_md(&p.description) {
-                    markdown::render(ui, th, &p.description);
+    // The title/description + changed-files + diff stack can outgrow the
+    // pane (long descriptions, many files, big diffs). Scroll the whole
+    // page rather than truncating whatever falls off the bottom.
+    egui::ScrollArea::vertical()
+        .id_salt("patch_detail_page")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            card(ui, th, |ui| {
+                title_2(ui, th, &p.title);
+                ui.add_space(th.spacing.sm);
+                dim_label(
+                    ui,
+                    th,
+                    &format!(
+                        "{} · {} · {} · {} revision{}",
+                        p.state,
+                        p.short_id,
+                        p.author,
+                        p.revisions,
+                        if p.revisions == 1 { "" } else { "s" }
+                    ),
+                );
+                ui.add_space(th.spacing.sm);
+                dim_label(
+                    ui,
+                    th,
+                    &format!(
+                        "base {} → head {}",
+                        short_oid_display(&p.base),
+                        short_oid_display(&p.head)
+                    ),
+                );
+                ui.add_space(th.spacing.md);
+                let desc_h = (avail_h * 0.22).clamp(72.0, 160.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("patch_detail")
+                    .max_height(desc_h)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        if p.description.is_empty() {
+                            dim_label(ui, th, "(no description)");
+                        } else if looks_like_md(&p.description) {
+                            markdown::render(ui, th, &p.description);
+                        } else {
+                            linkify::body(ui, th, &p.description);
+                        }
+                    });
+            });
+
+            if let Some(err) = &state.patch_error {
+                ui.add_space(gap);
+                card(ui, th, |ui| {
+                    dim_label(ui, th, err);
+                });
+            }
+
+            ui.add_space(gap);
+
+            let paths_h = (avail_h * 0.22).clamp(88.0, 180.0);
+            card(ui, th, |ui| {
+                title_2(ui, th, "Changed files");
+                ui.add_space(th.spacing.sm);
+                if state.patch_paths.is_empty() {
+                    dim_label(ui, th, "(no file changes)");
                 } else {
-                    linkify::body(ui, th, &p.description);
+                    egui::ScrollArea::vertical()
+                        .id_salt("patch_paths")
+                        .max_height(paths_h)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            for path in state.patch_paths.clone() {
+                                let selected = state.selected_patch_diff_path.as_deref()
+                                    == Some(path.as_str());
+                                let response = selectable_row(ui, th, &path, selected, false, true);
+                                if response.clicked() {
+                                    if let Some(profile) = profile {
+                                        state.select_patch_diff_path(profile, &path);
+                                    }
+                                }
+                            }
+                        });
                 }
             });
-    });
 
-    if let Some(err) = &state.patch_error {
-        ui.add_space(gap);
-        card(ui, th, |ui| {
-            dim_label(ui, th, err);
-        });
-    }
+            ui.add_space(gap);
 
-    ui.add_space(gap);
-
-    let paths_h = (avail_h * 0.22).clamp(88.0, 180.0);
-    card(ui, th, |ui| {
-        title_2(ui, th, "Changed files");
-        ui.add_space(th.spacing.sm);
-        if state.patch_paths.is_empty() {
-            dim_label(ui, th, "(no file changes)");
-        } else {
-            egui::ScrollArea::vertical()
-                .id_salt("patch_paths")
-                .max_height(paths_h)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
+            card(ui, th, |ui| {
+                let title = state
+                    .selected_patch_diff_path
+                    .as_deref()
+                    .unwrap_or("Diff");
+                title_2(ui, th, title);
+                ui.add_space(th.spacing.md);
+                if state.patch_diff_text.is_empty() {
+                    dim_label(ui, th, "Select a changed file to view the patch.");
+                } else {
+                    // No own scroll here: the diff grows to its natural
+                    // height and rides the page-level ScrollArea above, so
+                    // there's a single scrollbar instead of a nested one.
                     ui.set_min_width(ui.available_width());
-                    for path in state.patch_paths.clone() {
-                        let selected =
-                            state.selected_patch_diff_path.as_deref() == Some(path.as_str());
-                        let response = selectable_row(ui, th, &path, selected, false, true);
-                        if response.clicked() {
-                            if let Some(profile) = profile {
-                                state.select_patch_diff_path(profile, &path);
-                            }
-                        }
-                    }
-                });
-        }
-    });
-
-    ui.add_space(gap);
-
-    card(ui, th, |ui| {
-        let title = state
-            .selected_patch_diff_path
-            .as_deref()
-            .unwrap_or("Diff");
-        title_2(ui, th, title);
-        ui.add_space(th.spacing.md);
-        if state.patch_diff_text.is_empty() {
-            dim_label(ui, th, "Select a changed file to view the patch.");
-        } else {
-            fill_scroll(ui, "patch_diff_widget", true, |ui| {
-                diff_widget(ui, th, &state.patch_diff_text);
+                    diff_widget(ui, th, &state.patch_diff_text);
+                }
             });
-        }
-    });
+        });
 }
 
 fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut RepoUi) {
