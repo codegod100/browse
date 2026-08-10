@@ -2,6 +2,8 @@
 //!
 //! Prefer a live `gleam build` when a wasm-capable Gleam is available; otherwise
 //! copy `gleam/browse/prebuilt/browse.wasm` (kept for hermetic `nix build`).
+//! Optional: `gleam/browse/prebuilt/browse.wat` is the string-capable stand-in
+//! used to refresh that wasm when Gleam is unavailable (`wat2wasm`).
 
 use std::env;
 use std::fs;
@@ -24,6 +26,12 @@ fn main() {
         "cargo:rerun-if-changed={}",
         manifest_dir
             .join("gleam/browse/prebuilt/browse.wasm")
+            .display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir
+            .join("gleam/browse/prebuilt/browse.wat")
             .display()
     );
 

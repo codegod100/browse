@@ -1,7 +1,8 @@
 //! Host view API: Gleam emits packed opcodes; Rust paints Vidya widgets.
 //!
-//! Gleam stays int-only across Wasm. Dynamic content lives in [`ViewModel`].
-//! Section UI lives in [`crate::components`].
+//! Guest text may come from Wasm strings (`browse__view_text`) or legacy int
+//! vocab codes in the opcode payload. Dynamic repo content still lives in
+//! [`ViewModel`]. Section UI lives in [`crate::components`].
 //!
 //! Opcode packing: `payload * 16 + tag` (same as the Gleam guest).
 
@@ -9,6 +10,7 @@ use eframe::egui;
 use vidya::{body, button, card, dim_label, hflow, primary_button, title, title_2, Theme};
 
 use crate::components::{Files, Meta, Readme, RepoBrowser, RepoUi};
+use crate::rad::RepoSummary;
 use radicle::Profile;
 
 /// Dynamic strings + typed rows the guest references by opcode payload.
@@ -20,6 +22,10 @@ pub struct ViewModel {
     pub patches: Vec<PatchRow>,
     pub issues: Vec<IssueRow>,
     pub jobs: Vec<JobRow>,
+    /// Enter-screen inventory (host-filled; Gleam may emit `RepoList` op).
+    pub local_repos: Vec<RepoSummary>,
+    /// RID/filter text used when Gleam paints a repo list.
+    pub rid_query: String,
 }
 
 #[derive(Debug, Clone)]
@@ -86,21 +92,41 @@ pub struct JobRow {
     pub runs: Vec<JobRunRow>,
 }
 
+/// Side effects collected while painting a Gleam view.
+#[derive(Debug, Default)]
+pub struct PaintEffects {
+    pub pending_msg: Option<i64>,
+    pub open_rid: Option<String>,
+}
+
+impl PaintEffects {
+    fn merge(&mut self, other: Self) {
+        if other.pending_msg.is_some() {
+            self.pending_msg = other.pending_msg;
+        }
+        if other.open_rid.is_some() {
+            self.open_rid = other.open_rid;
+        }
+    }
+}
+
 /// Decoded view op (Gleam → host).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     /// Repo name / desc / rid / head.
     Meta,
-    Title(i64),
-    Body(i64),
+    Title(String),
+    Body(String),
+    /// Local storage inventory (enter screen).
+    RepoList,
     Button {
         primary: bool,
         msg: i64,
-        label: i64,
+        label: String,
     },
     Space(i64),
-    Status(i64),
-    Header(i64),
+    Status(String),
+    Header(String),
     CardOpen,
     CardClose,
     Slot {
@@ -117,38 +143,76 @@ pub enum Op {
 }
 
 impl Op {
-    pub fn decode(packed: i64) -> Self {
+    pub fn decode_packed(packed: i64) -> (Self, /* needs_text */ bool) {
         let tag = packed % 16;
         let payload = packed / 16;
         match tag {
-            0 => Self::Meta,
-            1 => Self::Title(payload),
-            2 => Self::Body(payload),
+            0 => (Self::Meta, false),
+            1 => (Self::Title(String::new()), true),
+            2 => (Self::Body(String::new()), true),
+            3 => (Self::RepoList, false),
             4 => {
-                let label = payload % 256;
+                let label_code = payload % 256;
                 let msg = (payload / 256) % 256;
                 let primary = (payload / 65_536) % 2 == 1;
-                Self::Button {
-                    primary,
-                    msg,
-                    label,
-                }
+                (
+                    Self::Button {
+                        primary,
+                        msg,
+                        label: vocab(label_code).to_string(),
+                    },
+                    true,
+                )
             }
-            5 => Self::Space(payload),
-            6 => Self::Status(payload),
-            7 => Self::Header(payload),
-            8 => Self::CardOpen,
-            9 => Self::CardClose,
-            10 => Self::Slot {
-                style: (payload / 256) % 256,
-                id: (payload % 256) as usize,
-            },
-            11 => Self::TreeList(payload.max(0) as usize),
-            12 => Self::MdBody(payload.max(0) as usize),
-            13 => Self::FileList(payload.max(0) as usize),
-            14 => Self::CommitList(payload.max(0) as usize),
-            15 => Self::RepoTabs,
-            _ => Self::Unknown(packed),
+            5 => (Self::Space(payload), false),
+            6 => (Self::Status(String::new()), true),
+            7 => (Self::Header(String::new()), true),
+            8 => (Self::CardOpen, false),
+            9 => (Self::CardClose, false),
+            10 => (
+                Self::Slot {
+                    style: (payload / 256) % 256,
+                    id: (payload % 256) as usize,
+                },
+                false,
+            ),
+            11 => (Self::TreeList(payload.max(0) as usize), false),
+            12 => (Self::MdBody(payload.max(0) as usize), false),
+            13 => (Self::FileList(payload.max(0) as usize), false),
+            14 => (Self::CommitList(payload.max(0) as usize), false),
+            15 => (Self::RepoTabs, false),
+            _ => (Self::Unknown(packed), false),
+        }
+    }
+
+    /// Legacy path when the guest has no `browse__view_text`.
+    pub fn decode(packed: i64) -> Self {
+        let (mut op, needs_text) = Self::decode_packed(packed);
+        if needs_text {
+            let payload = packed / 16;
+            match &mut op {
+                Self::Title(s) => *s = vocab(payload).to_string(),
+                Self::Body(s) => *s = vocab(payload).to_string(),
+                Self::Status(s) => *s = vocab(payload).to_string(),
+                Self::Header(s) => *s = vocab(payload).to_string(),
+                Self::Button { label, .. } => {
+                    let label_code = payload % 256;
+                    *label = vocab(label_code).to_string();
+                }
+                _ => {}
+            }
+        }
+        op
+    }
+
+    pub fn apply_guest_text(&mut self, text: String) {
+        if text.is_empty() {
+            return;
+        }
+        match self {
+            Self::Title(s) | Self::Body(s) | Self::Status(s) | Self::Header(s) => *s = text,
+            Self::Button { label, .. } => *label = text,
+            _ => {}
         }
     }
 }
@@ -163,10 +227,62 @@ pub fn vocab(code: i64) -> &'static str {
         6 => "README",
         7 => "Files",
         8 => "Commits",
-        9 => "Patches",
-        10 => "Issues",
-        11 => "Jobs",
         _ => "?",
+    }
+}
+
+/// Host chrome strings — prefer Gleam `label(id)`, else Rust fallback.
+pub fn label_fallback(id: i64) -> &'static str {
+    match id {
+        1 => "Browse",
+        2 => "Open",
+        3 => "RID",
+        4 => "Back",
+        5 => "Files",
+        6 => "Commits",
+        7 => "README",
+        8 => "Local repos",
+        9 => "No repositories in local storage yet.",
+        10 => "No repos match this filter.",
+        11 => "Up",
+        12 => "(binary or too large)",
+        13 => "(empty tree)",
+        14 => "(no commits)",
+        15 => "Select a file to view its contents.",
+        16 => "Select a commit to inspect its diff.",
+        17 => "Changed files",
+        18 => "Diff",
+        19 => "Seed a repo with radicle, then it will show up here.",
+        20 => "Filter by typing in the RID field.",
+        21 => "Help",
+        22 => "(no file changes)",
+        23 => "Select a changed file to view the patch.",
+        24 => "Files",
+        25 => "About",
+        26 => "Patches",
+        27 => "Issues",
+        28 => "Jobs",
+        29 => "Copy RID",
+        30 => "Head",
+        31 => "Description",
+        32 => "Name",
+        33 => "Storage",
+        34 => "Local only — Browse does not fetch from the network.",
+        35 => "Vidya shell · Gleam screens · Radicle storage",
+        36 => "Repository",
+        37 => "History",
+        38 => "Tree",
+        39 => "Blob",
+        40 => "Markdown",
+        _ => "?",
+    }
+}
+
+/// Resolve a shared UI label from the Gleam guest when available.
+pub fn ui_label(id: i64) -> String {
+    match crate::gleam_guest::label(id) {
+        Ok(Some(s)) if !s.is_empty() => s,
+        _ => label_fallback(id).to_string(),
     }
 }
 
@@ -187,7 +303,7 @@ fn space_px(th: &Theme, sz: i64) -> f32 {
     }
 }
 
-/// Paint a contiguous op slice; returns a pending button msg if any.
+/// Paint a contiguous op slice; returns button msgs / repo opens.
 pub fn paint(
     ui: &mut egui::Ui,
     th: &Theme,
@@ -197,27 +313,27 @@ pub fn paint(
     model: &ViewModel,
     repo_ui: &mut RepoUi,
     profile: Option<&Profile>,
-) -> Option<i64> {
-    let mut pending: Option<i64> = None;
-    let mut button_row: Vec<(i64, bool, &'static str)> = Vec::new();
+) -> PaintEffects {
+    let mut effects = PaintEffects::default();
+    let mut button_row: Vec<(i64, bool, String)> = Vec::new();
     let mut i = start;
 
     let flush_buttons = |ui: &mut egui::Ui,
                          th: &Theme,
-                         row: &mut Vec<(i64, bool, &'static str)>,
-                         pending: &mut Option<i64>| {
+                         row: &mut Vec<(i64, bool, String)>,
+                         effects: &mut PaintEffects| {
         if row.is_empty() {
             return;
         }
         hflow(ui, th, |ui| {
-            for &(msg, primary, label) in row.iter() {
-                let clicked = if primary {
+            for (msg, primary, label) in row.iter() {
+                let clicked = if *primary {
                     primary_button(ui, th, label).clicked()
                 } else {
                     button(ui, th, label).clicked()
                 };
                 if clicked {
-                    *pending = Some(msg);
+                    effects.pending_msg = Some(*msg);
                 }
             }
         });
@@ -225,20 +341,27 @@ pub fn paint(
     };
 
     while i < end {
-        match ops[i] {
+        match &ops[i] {
             Op::Meta => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
+                flush_buttons(ui, th, &mut button_row, &mut effects);
                 Meta::show(ui, th, model);
                 i += 1;
             }
-            Op::Title(code) => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                title_2(ui, th, vocab(code));
+            Op::Title(text) => {
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                title_2(ui, th, text);
                 i += 1;
             }
-            Op::Body(code) => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                body(ui, th, vocab(code));
+            Op::Body(text) => {
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                body(ui, th, text);
+                i += 1;
+            }
+            Op::RepoList => {
+                // Recently-viewed + searchable local inventory is host-owned
+                // (`app` model==0 → RepoList::show). Gleam may still emit this
+                // tag; treat as a no-op so enter chrome and inventory don't dual-paint.
+                flush_buttons(ui, th, &mut button_row, &mut effects);
                 i += 1;
             }
             Op::Button {
@@ -246,73 +369,73 @@ pub fn paint(
                 msg,
                 label,
             } => {
-                button_row.push((msg, primary, vocab(label)));
+                button_row.push((*msg, *primary, label.clone()));
                 i += 1;
             }
             Op::Space(sz) => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                ui.add_space(space_px(th, sz));
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                ui.add_space(space_px(th, *sz));
                 i += 1;
             }
-            Op::Status(code) => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                dim_label(ui, th, vocab(code));
+            Op::Status(text) => {
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                dim_label(ui, th, text);
                 i += 1;
             }
-            Op::Header(code) => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                title(ui, th, vocab(code));
+            Op::Header(text) => {
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                title(ui, th, text);
                 i += 1;
             }
             Op::CardOpen => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
+                flush_buttons(ui, th, &mut button_row, &mut effects);
                 let close = find_card_end(ops, i + 1, end);
                 let inner = {
-                    let mut p = None;
+                    let mut inner_effects = PaintEffects::default();
                     card(ui, th, |ui| {
-                        p = paint(ui, th, ops, i + 1, close, model, repo_ui, profile);
+                        inner_effects = paint(
+                            ui, th, ops, i + 1, close, model, repo_ui, profile,
+                        );
                     });
-                    p
+                    inner_effects
                 };
-                if inner.is_some() {
-                    pending = inner;
-                }
+                effects.merge(inner);
                 i = close.min(end.saturating_sub(1)) + 1;
                 if close >= end {
                     break;
                 }
             }
             Op::CardClose => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
+                flush_buttons(ui, th, &mut button_row, &mut effects);
                 break;
             }
             Op::Slot { style, id } => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                let text = model.string(id);
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                let text = model.string(*id);
                 match style {
                     0 => title_2(ui, th, text),
-                    1 => crate::linkify::body(ui, th, text),
-                    _ => crate::linkify::dim(ui, th, text),
+                    1 => body(ui, th, text),
+                    _ => dim_label(ui, th, text),
                 }
                 i += 1;
             }
             Op::TreeList(n) | Op::FileList(n) => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                Files::show(ui, th, model, n);
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                Files::show(ui, th, model, *n);
                 i += 1;
             }
             Op::MdBody(slot) => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                Readme::show(ui, th, model, slot);
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                Readme::show(ui, th, model, *slot);
                 i += 1;
             }
             Op::CommitList(n) => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
-                crate::components::Commits::show(ui, th, model, n);
+                flush_buttons(ui, th, &mut button_row, &mut effects);
+                crate::components::Commits::show(ui, th, model, *n);
                 i += 1;
             }
             Op::RepoTabs => {
-                flush_buttons(ui, th, &mut button_row, &mut pending);
+                flush_buttons(ui, th, &mut button_row, &mut effects);
                 RepoBrowser::show(ui, th, model, repo_ui, profile);
                 i += 1;
             }
@@ -321,8 +444,8 @@ pub fn paint(
             }
         }
     }
-    flush_buttons(ui, th, &mut button_row, &mut pending);
-    pending
+    flush_buttons(ui, th, &mut button_row, &mut effects);
+    effects
 }
 
 fn find_card_end(ops: &[Op], from: usize, end: usize) -> usize {
