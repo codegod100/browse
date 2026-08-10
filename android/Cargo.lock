@@ -399,6 +399,7 @@ dependencies = [
  "eframe",
  "egui",
  "git2",
+ "jni 0.21.1",
  "log",
  "openssl",
  "pulldown-cmark",

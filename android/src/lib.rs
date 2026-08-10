@@ -11,6 +11,9 @@ mod recent;
 mod tab_prefs;
 mod view_api;
 
+#[cfg(target_os = "android")]
+mod android_clipboard;
+
 pub use app::run_desktop;
 
 #[cfg(target_os = "android")]
@@ -136,6 +139,8 @@ fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
     );
     // Soft keyboard + system clipboard (Vidya); clone — eframe takes the other.
     vidya::install_android_app(android_app.clone());
+    // Browse-local clipboard with EditText focus (API 29+).
+    crate::android_clipboard::install(android_app.clone());
     // Point Radicle at app-private storage when RAD_HOME is unset.
     if std::env::var_os("RAD_HOME").is_none() {
         if let Some(dir) = android_app.internal_data_path() {
