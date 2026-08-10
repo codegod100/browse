@@ -30,36 +30,31 @@ pub fn segments(text: &str) -> Vec<Segment<'_>> {
 /// True when `text` itself is a single openable URL (optionally surrounded by whitespace).
 pub fn is_url(text: &str) -> bool {
     let t = text.trim();
-    matches!(segments(t).as_slice(), [Segment::Url(u)] if *u == t)
+    !t.is_empty() && matches!(segments(t).as_slice(), [Segment::Url(u)] if *u == t)
 }
 
-/// Render a single clickable URL with accent styling.
+/// Render a single clickable URL with accent styling (body size).
 pub fn link(ui: &mut egui::Ui, th: &Theme, url: &str) {
-    let response = ui
-        .add(
-            egui::Label::new(
-                RichText::new(url)
-                    .size(th.type_scale.body)
-                    .color(th.palette.accent)
-                    .underline(),
-            )
-            .sense(Sense::click())
-            .wrap(),
-        )
-        .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text(url);
-    if response.clicked() {
-        ui.ctx().open_url(OpenUrl::new_tab(url.to_owned()));
-    }
+    clickable_url(ui, th, url, th.type_scale.body);
 }
 
 /// Like [`link`], but caption-sized for secondary/dim lines.
 pub fn dim_link(ui: &mut egui::Ui, th: &Theme, url: &str) {
+    clickable_url(ui, th, url, th.type_scale.caption);
+}
+
+fn clickable_url(ui: &mut egui::Ui, th: &Theme, url: &str, size: f32) {
+    let url = url.trim();
+    if url.is_empty() {
+        return;
+    }
+    // Prefer egui Hyperlink (wires into eframe's open_url output) and keep
+    // wrap + click sense so long job log URLs stay usable in narrow panes.
     let response = ui
         .add(
             egui::Label::new(
                 RichText::new(url)
-                    .size(th.type_scale.caption)
+                    .size(size)
                     .color(th.palette.accent)
                     .underline(),
             )
@@ -67,10 +62,19 @@ pub fn dim_link(ui: &mut egui::Ui, th: &Theme, url: &str) {
             .wrap(),
         )
         .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text(url);
+        .on_hover_text(format!("Open {url}"));
     if response.clicked() {
-        ui.ctx().open_url(OpenUrl::new_tab(url.to_owned()));
+        open(ui, url);
     }
+}
+
+fn open(ui: &egui::Ui, url: &str) {
+    ui.ctx().open_url(OpenUrl {
+        url: url.to_owned(),
+        new_tab: true,
+    });
+    // Belt-and-suspenders: some hosts only honor Output::open_url sporadically.
+    let _ = webbrowser::open(url);
 }
 
 /// Body text that auto-links any bare URLs. Falls back to a plain label when none.
@@ -100,9 +104,7 @@ fn render_mixed(
 ) {
     let parts = segments(text);
     if !parts.iter().any(|s| matches!(s, Segment::Url(_))) {
-        ui.add(
-            egui::Label::new(RichText::new(text).size(size).color(color)).wrap(),
-        );
+        ui.add(egui::Label::new(RichText::new(text).size(size).color(color)).wrap());
         return;
     }
 
@@ -112,9 +114,7 @@ fn render_mixed(
             match part {
                 Segment::Text(t) if t.is_empty() => {}
                 Segment::Text(t) => {
-                    ui.add(
-                        egui::Label::new(RichText::new(t).size(size).color(color)).wrap(),
-                    );
+                    ui.add(egui::Label::new(RichText::new(t).size(size).color(color)).wrap());
                 }
                 Segment::Url(url) => {
                     if dim_links {
@@ -239,6 +239,7 @@ mod tests {
     #[test]
     fn whole_string_url() {
         assert!(is_url("https://boxci.boxd.sh/runs/abc"));
+        assert!(is_url("  https://boxci.boxd.sh/runs/abc  "));
         assert!(!is_url("log https://boxci.boxd.sh/runs/abc"));
     }
 
@@ -246,5 +247,15 @@ mod tests {
     fn keeps_balanced_parens() {
         let parts = segments("https://example.com/foo_(bar)");
         assert_eq!(parts, vec![Segment::Url("https://example.com/foo_(bar)")]);
+    }
+
+    #[test]
+    fn boxci_job_log_shape() {
+        let url = "https://boxci.boxd.sh/repos/z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3/runs/ea923abc";
+        assert!(is_url(url));
+        assert_eq!(
+            segments(&format!("log {url}")),
+            vec![Segment::Text("log "), Segment::Url(url)]
+        );
     }
 }
