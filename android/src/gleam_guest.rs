@@ -338,16 +338,15 @@ mod tests {
     fn view_text_returns_guest_strings() {
         let model = init().expect("init");
         assert_eq!(model, 0);
-        assert_eq!(view_len(model).expect("enter len"), 12);
+        assert_eq!(view_len(model).expect("enter len"), 8);
         let hint = view_text(model, 2).expect("text").expect("some");
         assert!(hint.contains("Radicle ID"), "{hint}");
-        assert_eq!(view_text(model, 8).unwrap().unwrap(), "Help");
-        assert_eq!(view_text(model, 10).unwrap().unwrap(), "About");
+        assert_eq!(view_text(model, 4).unwrap().unwrap(), "Filter by typing in the RID field.");
+        assert_eq!(view_text(model, 6).unwrap().unwrap(), "Local only — Browse does not fetch from the network.");
 
         assert!(has_label());
         assert_eq!(label(2).unwrap().unwrap(), "Open");
         assert_eq!(label(5).unwrap().unwrap(), "Files");
-        assert_eq!(label(25).unwrap().unwrap(), "About");
         assert_eq!(label(35).unwrap().unwrap(), "Vidya shell · Gleam screens · Radicle storage");
 
         let model = update(model, 2).expect("loaded");
@@ -362,14 +361,8 @@ mod tests {
         assert_eq!(update(0, 4).unwrap(), 3);
         assert_eq!(view_len(3).unwrap(), 11);
 
-        let help = update(0, 5).unwrap();
-        assert_eq!(help, 4);
-        assert_eq!(view_len(help).unwrap(), 26);
-        assert_eq!(view_text(help, 7).unwrap().unwrap(), "How to use Browse");
-
-        let about = update(0, 6).unwrap();
-        assert_eq!(about, 5);
-        assert_eq!(view_len(about).unwrap(), 20);
-        assert_eq!(view_text(about, 7).unwrap().unwrap(), "About Browse");
+        // Help/About msgs are gone — unknown msgs leave the model unchanged.
+        assert_eq!(update(0, 5).unwrap(), 0);
+        assert_eq!(update(0, 6).unwrap(), 0);
     }
 }

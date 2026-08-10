@@ -47,7 +47,7 @@ RID: [`rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3`](https://nandi.radicle.garden/rad:z2QL
 
 ## View API
 
-Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.gleam`](android/gleam/browse/src/browse.gleam) (`header`, `md_body`, `file_list`, `commit_list`, …). Those pack to int opcodes; Rust [`android/src/view_api.rs`](android/src/view_api.rs) decodes them onto Vidya widgets. Dynamic repo rows live in `ViewModel` (host). Enter inventory (recent + search) is host-owned; Gleam owns enter chrome, help/about, and viewing/error copy.
+Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.gleam`](android/gleam/browse/src/browse.gleam) (`header`, `md_body`, `file_list`, `commit_list`, …). Those pack to int opcodes; Rust [`android/src/view_api.rs`](android/src/view_api.rs) decodes them onto Vidya widgets. Dynamic repo rows live in `ViewModel` (host). Enter inventory (recent + search) is host-owned; Gleam owns enter chrome and viewing/error copy.
 
 ### Wasm strings
 
@@ -68,7 +68,7 @@ Host path: [`android/src/gleam_guest.rs`](android/src/gleam_guest.rs). Hermetic 
 |------|------|
 | `android/` | Shared lib + Android NativeActivity (`cargo-apk`) |
 | `host/` | Desktop binary (`browse`) |
-| `android/gleam/browse/src/browse.gleam` | TEA screens (enter/viewing/error/noprof/help/about) + labels + view DSL |
+| `android/gleam/browse/src/browse.gleam` | TEA screens (enter/viewing/error/noprof) + labels + view DSL |
 | `tools/gen_browse_wat.py` | Regenerates string-capable `android/gleam/browse/prebuilt/browse.{wat,wasm}` |
 | `android/src/components/` | Meta, Readme, RepoBrowser (Files/Commits/Patches/Issues/Jobs; status tabs + search) |
 | `android/src/view_api.rs` | Host paint API (`Op` / `ViewModel` → components) |
