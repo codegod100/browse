@@ -59,6 +59,8 @@ pub enum RadError {
     Profile(String),
     #[error("invalid RID: {0}")]
     Rid(String),
+    #[error("{rid} isn't available — checked local storage and every seed gateway ({detail})")]
+    NotFound { rid: String, detail: String },
     #[error("open repo: {0}")]
     Open(String),
     #[error("identity: {0}")]
@@ -142,11 +144,88 @@ pub fn list_local_repos(profile: &Profile) -> Result<Vec<RepoSummary>, RadError>
     Ok(out)
 }
 
+/// Web-seed gateways to try, in order, when a RID isn't seeded locally yet.
+/// Each serves the exact bare Radicle storage repo over git's smart HTTP
+/// protocol, so a mirror fetch from one reproduces what a local node would
+/// otherwise have replicated over the p2p network.
+///
+/// Override with `BROWSE_SEED_GATEWAYS` (comma-separated base URLs; set to
+/// an empty string to disable on-demand seeding entirely) — used by tests
+/// to avoid real network calls, but also handy to point at a different
+/// gateway.
+fn seed_gateways() -> Vec<String> {
+    match std::env::var("BROWSE_SEED_GATEWAYS") {
+        Ok(v) => v
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+        Err(_) => vec!["https://nandi.radicle.garden".to_string()],
+    }
+}
+
+/// Mirror-fetch `rid`'s bare repo from `base` (e.g.
+/// `https://nandi.radicle.garden`) into `target`.
+///
+/// Uses `+refs/*:refs/*` — every ref (canonical branches, `rad/id`, signed
+/// refs, COB refs) — not just the default branch, so the result is
+/// indistinguishable from a natively-seeded repo.
+fn fetch_from_gateway(base: &str, suffix: &str, target: &Path) -> Result<(), String> {
+    let url = format!("{}/{suffix}.git", base.trim_end_matches('/'));
+    let repo = git2::Repository::init_bare(target).map_err(|e| e.to_string())?;
+    let mut remote = repo
+        .remote_with_fetch("seed", &url, "+refs/*:refs/*")
+        .map_err(|e| e.to_string())?;
+    remote
+        .fetch(&["+refs/*:refs/*"], None, None)
+        .map_err(|e| e.to_string())
+}
+
+/// Try to seed `rid` from [`seed_gateways`] into local storage.
+///
+/// Tries each gateway in order and stops at the first success. On total
+/// failure, removes any partial bare repo so a retry doesn't trip over
+/// stale state.
+fn seed_repo(profile: &Profile, rid: RepoId) -> Result<(), String> {
+    let target = profile.storage.path_of(&rid);
+    let suffix = rid.to_string();
+    let suffix = suffix.trim_start_matches("rad:");
+
+    let gateways = seed_gateways();
+    if gateways.is_empty() {
+        return Err("no seed gateway configured".into());
+    }
+
+    let mut last_err = String::new();
+    for base in &gateways {
+        match fetch_from_gateway(base, suffix, &target) {
+            Ok(()) => return Ok(()),
+            Err(e) => last_err = format!("{base}: {e}"),
+        }
+    }
+    let _ = std::fs::remove_dir_all(&target);
+    Err(last_err)
+}
+
 fn open_storage(profile: &Profile, rid_str: &str) -> Result<(RepoId, Repository), RadError> {
     let rid: RepoId = rid_str
         .trim()
         .parse()
         .map_err(|e| RadError::Rid(format!("{e}")))?;
+    // `storage.repository()` opens the on-disk bare repo directly via git2,
+    // which — for a RID this device has never seeded — surfaces as a raw
+    // "No such file or directory" (ENOENT). Seed it from a web gateway
+    // first (no p2p node runs on-device to do this automatically), and
+    // only fail with an actionable message if that doesn't pan out either.
+    if !profile.storage.path_of(&rid).exists() {
+        if let Err(detail) = seed_repo(profile, rid) {
+            return Err(RadError::NotFound {
+                rid: rid.to_string(),
+                detail,
+            });
+        }
+    }
     let repo = profile
         .storage
         .repository(rid)
@@ -744,6 +823,46 @@ mod tests {
 
         unsafe {
             std::env::remove_var("RAD_HOME");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_repo_reports_not_found_when_no_seed_has_it() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "browse-rad-open-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // SAFETY: guarded by ENV_LOCK; no other test touches RAD_HOME /
+        // BROWSE_SEED_GATEWAYS concurrently.
+        unsafe {
+            std::env::set_var("RAD_HOME", &dir);
+            // No network in unit tests — disable the seed-gateway fallback
+            // so this stays offline and deterministic.
+            std::env::set_var("BROWSE_SEED_GATEWAYS", "");
+        }
+
+        let profile = create_profile("browse-test", None).expect("create profile");
+        // A well-formed RID that this fresh profile has never seeded.
+        let target_rid = "rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3";
+        let err = open_repo(&profile, target_rid).unwrap_err();
+        assert!(
+            matches!(&err, RadError::NotFound { rid, .. } if rid == target_rid),
+            "expected NotFound{{ rid: {target_rid}, .. }}, got {err:?}"
+        );
+        // Friendly message, not a raw git2 "No such file or directory".
+        assert!(!err.to_string().contains("No such file or directory"));
+
+        unsafe {
+            std::env::remove_var("RAD_HOME");
+            std::env::remove_var("BROWSE_SEED_GATEWAYS");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

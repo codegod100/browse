@@ -132,10 +132,8 @@ fn ensure_focus_edit_text<'a>(
     env: &mut JNIEnv<'a>,
     activity: &JObject<'_>,
 ) -> Option<JObject<'a>> {
-    let content_id = clear_exc(env, env.get_static_field("android/R$id", "content", "I"))
-        .ok()?
-        .i()
-        .ok()?;
+    let r = env.get_static_field("android/R$id", "content", "I");
+    let content_id = clear_exc(env, r).ok()?.i().ok()?;
     let r = env.call_method(
         activity,
         "findViewById",
@@ -163,46 +161,34 @@ fn ensure_focus_edit_text<'a>(
         }
     }
 
-    let edit = clear_exc(
-        env,
-        env.new_object(
-            "android/widget/EditText",
-            "(Landroid/content/Context;)V",
-            &[JValue::Object(activity)],
-        ),
-    )
-    .ok()?;
+    let r = env.new_object(
+        "android/widget/EditText",
+        "(Landroid/content/Context;)V",
+        &[JValue::Object(activity)],
+    );
+    let edit = clear_exc(env, r).ok()?;
     if edit.is_null() {
         return None;
     }
 
-    let _ = clear_exc(
-        env,
-        env.call_method(&edit, "setTag", "(Ljava/lang/Object;)V", &[JValue::Object(&tag_key_obj)]),
+    let r = env.call_method(&edit, "setTag", "(Ljava/lang/Object;)V", &[JValue::Object(&tag_key_obj)]);
+    let _ = clear_exc(env, r);
+    let r = env.call_method(&edit, "setFocusable", "(Z)V", &[JValue::Bool(true.into())]);
+    let _ = clear_exc(env, r);
+    let r = env.call_method(
+        &edit,
+        "setFocusableInTouchMode",
+        "(Z)V",
+        &[JValue::Bool(true.into())],
     );
-    let _ = clear_exc(
-        env,
-        env.call_method(&edit, "setFocusable", "(Z)V", &[JValue::Bool(true.into())]),
-    );
-    let _ = clear_exc(
-        env,
-        env.call_method(
-            &edit,
-            "setFocusableInTouchMode",
-            "(Z)V",
-            &[JValue::Bool(true.into())],
-        ),
-    );
+    let _ = clear_exc(env, r);
     // Keep it on-screen but tiny so it can take IME/clipboard focus.
-    let lp = clear_exc(
-        env,
-        env.new_object(
-            "android/widget/FrameLayout$LayoutParams",
-            "(II)V",
-            &[JValue::Int(1), JValue::Int(1)],
-        ),
-    )
-    .ok()?;
+    let r = env.new_object(
+        "android/widget/FrameLayout$LayoutParams",
+        "(II)V",
+        &[JValue::Int(1), JValue::Int(1)],
+    );
+    let lp = clear_exc(env, r).ok()?;
     let r = env.call_method(
         &content,
         "addView",
@@ -215,53 +201,41 @@ fn ensure_focus_edit_text<'a>(
 }
 
 fn focus_view(env: &mut JNIEnv<'_>, view: &JObject<'_>) {
-    let _ = clear_exc(
-        env,
-        env.call_method(view, "setFocusable", "(Z)V", &[JValue::Bool(true.into())]),
+    let r = env.call_method(view, "setFocusable", "(Z)V", &[JValue::Bool(true.into())]);
+    let _ = clear_exc(env, r);
+    let r = env.call_method(
+        view,
+        "setFocusableInTouchMode",
+        "(Z)V",
+        &[JValue::Bool(true.into())],
     );
-    let _ = clear_exc(
-        env,
-        env.call_method(
-            view,
-            "setFocusableInTouchMode",
-            "(Z)V",
-            &[JValue::Bool(true.into())],
-        ),
-    );
-    let _ = clear_exc(env, env.call_method(view, "requestFocus", "()Z", &[]));
-    let _ = clear_exc(env, env.call_method(view, "requestFocusFromTouch", "()Z", &[]));
+    let _ = clear_exc(env, r);
+    let r = env.call_method(view, "requestFocus", "()Z", &[]);
+    let _ = clear_exc(env, r);
+    let r = env.call_method(view, "requestFocusFromTouch", "()Z", &[]);
+    let _ = clear_exc(env, r);
 
     // Also ask InputMethodManager to notice the view (helps some OEMs).
     if let Ok(imm_name) = env.new_string("input_method") {
         let imm_name_obj = JObject::from(imm_name);
         // Walk up to activity context: view.getContext()
-        if let Ok(ctx) = clear_exc(
-            env,
-            env.call_method(view, "getContext", "()Landroid/content/Context;", &[]),
-        )
-        .and_then(|v| v.l())
-        {
-            if let Ok(imm) = clear_exc(
-                env,
-                env.call_method(
-                    &ctx,
-                    "getSystemService",
-                    "(Ljava/lang/String;)Ljava/lang/Object;",
-                    &[JValue::Object(&imm_name_obj)],
-                ),
-            )
-            .and_then(|v| v.l())
-            {
+        let r = env.call_method(view, "getContext", "()Landroid/content/Context;", &[]);
+        if let Ok(ctx) = clear_exc(env, r).and_then(|v| v.l()) {
+            let r = env.call_method(
+                &ctx,
+                "getSystemService",
+                "(Ljava/lang/String;)Ljava/lang/Object;",
+                &[JValue::Object(&imm_name_obj)],
+            );
+            if let Ok(imm) = clear_exc(env, r).and_then(|v| v.l()) {
                 if !imm.is_null() {
-                    let _ = clear_exc(
-                        env,
-                        env.call_method(
-                            &imm,
-                            "restartInput",
-                            "(Landroid/view/View;)V",
-                            &[JValue::Object(view)],
-                        ),
+                    let r = env.call_method(
+                        &imm,
+                        "restartInput",
+                        "(Landroid/view/View;)V",
+                        &[JValue::Object(view)],
                     );
+                    let _ = clear_exc(env, r);
                 }
             }
         }
@@ -272,17 +246,15 @@ fn clipboard_manager<'a>(
     env: &mut JNIEnv<'a>,
     activity: &JObject<'_>,
 ) -> Option<JObject<'a>> {
-    let service = clear_exc(
-        env,
-        env.get_static_field(
-            "android/content/Context",
-            "CLIPBOARD_SERVICE",
-            "Ljava/lang/String;",
-        ),
-    )
-    .ok()
-    .and_then(|v| v.l().ok())
-    .or_else(|| env.new_string("clipboard").ok().map(JObject::from))?;
+    let r = env.get_static_field(
+        "android/content/Context",
+        "CLIPBOARD_SERVICE",
+        "Ljava/lang/String;",
+    );
+    let service = clear_exc(env, r)
+        .ok()
+        .and_then(|v| v.l().ok())
+        .or_else(|| env.new_string("clipboard").ok().map(JObject::from))?;
 
     let r = env.call_method(
         activity,
