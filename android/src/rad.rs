@@ -1,16 +1,22 @@
 //! Load a seeded Radicle repo by RID and return a view snapshot.
+//! Also create a local Radicle profile when none exists (APK / fresh installs).
 
-use std::path::Path;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use git2::{DiffFormat, DiffOptions, ObjectType};
 use radicle::cob::issue::Issues as IssueStore;
 use radicle::cob::patch::Patches as PatchStore;
 use radicle::cob::store::access::ReadOnly;
+use radicle::crypto::ssh::Passphrase;
+use radicle::crypto::Seed;
 use radicle::identity::DocAt;
+use radicle::node::Alias;
 use radicle::prelude::RepoId;
+use radicle::profile::{self, Profile};
 use radicle::storage::git::Repository;
 use radicle::storage::{ReadRepository, ReadStorage, RepositoryInfo};
-use radicle::Profile;
 use thiserror::Error;
 
 use crate::view_api::{CommitRow, FileRow, IssueRow, JobRow, JobRunRow, PatchRow};
@@ -65,6 +71,53 @@ pub enum RadError {
 
 pub fn load_profile() -> Result<Profile, RadError> {
     Profile::load().map_err(|e| RadError::Profile(e.to_string()))
+}
+
+/// Display path for the Radicle home (`RAD_HOME`, else `~/.radicle`).
+pub fn home_display() -> String {
+    match profile::home() {
+        Ok(home) => home.path().display().to_string(),
+        Err(_) => std::env::var_os("RAD_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".radicle")))
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "~/.radicle".into()),
+    }
+}
+
+/// Default node alias: `$USER` / `$USERNAME` when valid, else `browse`.
+pub fn default_alias() -> String {
+    std::env::var("USER")
+        .ok()
+        .or_else(|| std::env::var("USERNAME").ok())
+        .and_then(|u| Alias::from_str(&u).ok().map(|a| a.to_string()))
+        .unwrap_or_else(|| "browse".into())
+}
+
+fn generate_seed() -> Result<Seed, RadError> {
+    if let Some(seed) = profile::env::seed() {
+        return Ok(seed);
+    }
+    let mut bytes = [0u8; Seed::BYTES];
+    // `/dev/urandom` is available on Linux and Android NativeActivity hosts.
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .map_err(|e| RadError::Profile(format!("generate key seed: {e}")))?;
+    Ok(Seed::new(bytes))
+}
+
+/// Create a new Radicle profile at `$RAD_HOME` / `~/.radicle` (like `rad auth`).
+///
+/// Empty `passphrase` leaves the key unencrypted (typical for the APK).
+pub fn create_profile(alias: &str, passphrase: Option<&str>) -> Result<Profile, RadError> {
+    let alias = Alias::from_str(alias.trim()).map_err(|e| RadError::Profile(e.to_string()))?;
+    let home = profile::home().map_err(|e| RadError::Profile(e.to_string()))?;
+    let passphrase = passphrase
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| Passphrase::from(s.to_owned()));
+    let seed = generate_seed()?;
+    Profile::init(home, alias, passphrase, seed).map_err(|e| RadError::Profile(e.to_string()))
 }
 
 /// Local storage inventory (seeded / replicated repos on this node).
@@ -606,5 +659,50 @@ fn truncate_desc(text: &str) -> String {
         format!("{}…", &text[..MAX_DESC])
     } else {
         text.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    // Profile APIs touch process-wide env; serialize tests that mutate RAD_HOME.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn create_profile_roundtrip() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "browse-rad-profile-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // SAFETY: guarded by ENV_LOCK; no other test touches RAD_HOME concurrently.
+        unsafe {
+            std::env::set_var("RAD_HOME", &dir);
+        }
+
+        assert!(load_profile().is_err());
+        let profile = create_profile("browse-test", None).expect("create profile");
+        assert_eq!(profile.config.alias().as_str(), "browse-test");
+        let loaded = load_profile().expect("load after create");
+        assert_eq!(loaded.id(), profile.id());
+
+        unsafe {
+            std::env::remove_var("RAD_HOME");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_profile_rejects_empty_alias() {
+        let err = create_profile("  ", None).unwrap_err();
+        assert!(err.to_string().contains("alias") || err.to_string().contains("empty"));
     }
 }

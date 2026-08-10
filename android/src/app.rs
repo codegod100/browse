@@ -8,8 +8,8 @@ use eframe::egui::{
 };
 use radicle::Profile;
 use vidya::{
-    apply_dark, body, dim_label, grid_cols_with, paint_icon_in, primary_button, ColSpec, GridOpts,
-    Icon, Theme,
+    apply_dark, body, dim_label, grid_cols_with, paint_icon_in, primary_button, title, ColSpec,
+    GridOpts, Icon, Theme,
 };
 
 use crate::components::{RepoList, RepoUi, Tab};
@@ -56,6 +56,10 @@ struct BrowseApp {
     profile: Option<Profile>,
     rid_input: String,
     repo_filter: String,
+    /// Alias for creating a profile when none is loaded.
+    alias_input: String,
+    /// Optional passphrase for profile creation (empty = unencrypted key).
+    passphrase_input: String,
     model: Option<i64>,
     slots: Slots,
     repo_ui: RepoUi,
@@ -89,7 +93,11 @@ impl BrowseApp {
         };
 
         let auto_open = initial_rid.is_some();
-        let err = profile_err.or(model_err);
+        // Not-found is expected on fresh APK installs — the create form handles it.
+        let err = match profile_err {
+            Some(e) if e.contains("no Radicle profile found") => model_err,
+            other => other.or(model_err),
+        };
         let recent_repos = recent::load();
         let tab_prefs = tab_prefs::load();
 
@@ -98,6 +106,8 @@ impl BrowseApp {
             profile,
             rid_input: initial_rid.unwrap_or_default(),
             repo_filter: String::new(),
+            alias_input: rad::default_alias(),
+            passphrase_input: String::new(),
             model,
             slots: Slots::default(),
             repo_ui: RepoUi::default(),
@@ -125,6 +135,20 @@ impl BrowseApp {
                 Ok(repos) => self.local_repos = repos,
                 Err(e) => self.err = Some(e.to_string()),
             }
+        }
+    }
+
+    fn create_profile(&mut self) {
+        match rad::create_profile(&self.alias_input, Some(self.passphrase_input.as_str())) {
+            Ok(profile) => {
+                let did = profile.did().to_string();
+                self.profile = Some(profile);
+                self.passphrase_input.clear();
+                self.err = None;
+                self.refresh_local_repos();
+                self.show_toast(format!("Profile created · {did}"));
+            }
+            Err(e) => self.err = Some(e.to_string()),
         }
     }
 
@@ -314,9 +338,48 @@ impl eframe::App for BrowseApp {
                     |g| {
                         g.section(|ui| {
                             if self.profile.is_none() {
-                                dim_label(ui, &th, "Could not load ~/.radicle profile.");
+                                let mut create = false;
+                                title(ui, &th, "Create Radicle profile");
+                                body(
+                                    ui,
+                                    &th,
+                                    "No profile found. Create one to browse local storage.",
+                                );
+                                ui.add_space(th.spacing.sm);
+                                dim_label(ui, &th, &format!("Home: {}", rad::home_display()));
+                                ui.add_space(th.spacing.md);
+
+                                let h = th.spacing.control_height;
+                                ui.horizontal(|ui| {
+                                    ui.set_min_height(h);
+                                    ui.label("Alias");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.alias_input)
+                                            .desired_width(ui.available_width().max(1.0))
+                                            .hint_text("node alias"),
+                                    );
+                                });
+                                ui.add_space(th.spacing.sm);
+                                ui.horizontal(|ui| {
+                                    ui.set_min_height(h);
+                                    ui.label("Passphrase");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.passphrase_input)
+                                            .password(true)
+                                            .desired_width(ui.available_width().max(1.0))
+                                            .hint_text("optional"),
+                                    );
+                                });
+                                ui.add_space(th.spacing.md);
+                                if primary_button(ui, &th, "Create profile").clicked() {
+                                    create = true;
+                                }
                                 if let Some(err) = &self.err {
-                                    body(ui, &th, err);
+                                    ui.add_space(th.spacing.sm);
+                                    dim_label(ui, &th, err);
+                                }
+                                if create {
+                                    self.create_profile();
                                 }
                                 return;
                             }
