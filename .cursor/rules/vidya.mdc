@@ -1,0 +1,24 @@
+---
+description: Where to find and how to reference the Vidya egui theme crate
+alwaysApply: true
+---
+
+# Vidya (egui theme)
+
+Browse paints UI through **Vidya**. Prefer existing Vidya widgets/layout helpers over raw egui.
+
+## Repos
+
+| Source | URL |
+|--------|-----|
+| GitHub (mirror, Cloud Agent clone) | https://github.com/codegod100/vidya |
+| Tangled (canonical) | https://tangled.org/nandi.uk/vidya |
+| Radicle | [`rad:z2UqGTRH21s3pHnJgSuMwRaPPNNcW`](https://nandi.radicle.garden/rad:z2UqGTRH21s3pHnJgSuMwRaPPNNcW) |
+
+## Local paths
+
+- Cloud Agent install clones to **`$HOME/.local/share/vidya`** (see [`.cursor/environment.json`](../environment.json)).
+- When a sibling checkout exists, Cargo expects **`../vidya`** (`path` dep in `Cargo.toml`).
+- Nix builds pull Vidya from the flake input (no sibling required).
+
+When changing theme tokens, widgets, or layout DSL behavior, read the Vidya tree first and reuse its API (`Theme`, `primary_button`, `card`, `lead_trail`, `page_body` / grid DSL, etc.) instead of inventing parallel chrome.
