@@ -4,8 +4,9 @@ use eframe::egui::{
     self, Align, CursorIcon, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, StrokeKind,
     UiBuilder, Vec2,
 };
-use vidya::{body, dim_label, title_2, Theme};
+use vidya::{dim_label, title_2, Theme};
 
+use crate::linkify;
 use crate::rad::RepoSummary;
 use crate::recent::{self, RecentRepo};
 
@@ -120,7 +121,7 @@ fn repo_row(ui: &mut egui::Ui, th: &Theme, repo: &RepoSummary) -> egui::Response
     ui.add(egui::Label::new(rid).wrap());
 
     if !repo.description.is_empty() {
-        body(ui, th, &repo.description);
+        linkify::body(ui, th, &repo.description);
     }
 
     let bottom = ui.cursor().top();
