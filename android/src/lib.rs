@@ -78,6 +78,32 @@ pub fn run_smoke(rid: Option<&str>) -> eframe::Result {
             Err(e) => println!("paths error: {e}"),
         }
     }
+    if let Some(p) = view.patches.first() {
+        match rad::range_paths(&profile, &view.rid, &p.base, &p.head) {
+            Ok(paths) => {
+                println!(
+                    "patch {} range {}..{} paths: {}",
+                    p.short_id,
+                    &p.base.chars().take(7).collect::<String>(),
+                    &p.head.chars().take(7).collect::<String>(),
+                    paths.len()
+                );
+                for path in paths.iter().take(6) {
+                    println!("    {path}");
+                }
+                if let Some(path) = paths.first() {
+                    match rad::range_file_patch(&profile, &view.rid, &p.base, &p.head, path) {
+                        Ok(diff) => {
+                            let preview: String = diff.chars().take(160).collect();
+                            println!("patch diff {path} preview:\n{preview}");
+                        }
+                        Err(e) => println!("patch diff error: {e}"),
+                    }
+                }
+            }
+            Err(e) => println!("patch paths error: {e}"),
+        }
+    }
     if let Some(f) = view.files.iter().find(|f| !f.is_tree) {
         match rad::read_file(&profile, &view.rid, &view.head_oid, &f.name) {
             Ok(text) => {
