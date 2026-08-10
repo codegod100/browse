@@ -103,6 +103,8 @@ fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
+    // Soft keyboard + system clipboard (Vidya); clone — eframe takes the other.
+    vidya::install_android_app(android_app.clone());
     // Point Radicle at app-private storage when RAD_HOME is unset.
     if std::env::var_os("RAD_HOME").is_none() {
         if let Some(dir) = android_app.internal_data_path() {
