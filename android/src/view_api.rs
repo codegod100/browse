@@ -291,8 +291,8 @@ pub fn paint(
                 let text = model.string(id);
                 match style {
                     0 => title_2(ui, th, text),
-                    1 => body(ui, th, text),
-                    _ => dim_label(ui, th, text),
+                    1 => crate::linkify::body(ui, th, text),
+                    _ => crate::linkify::dim(ui, th, text),
                 }
                 i += 1;
             }
