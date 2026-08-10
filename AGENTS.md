@@ -2,17 +2,18 @@
 
 ## Cursor Cloud specific instructions
 
-### Review proposals: [boxci](https://boxci.boxd.sh) patch, not `rad push`
+### Review proposals: [boxci](https://boxci.boxd.sh) patch instead of a PR
 
-When opening or updating a code-review proposal from a Cloud Agent:
+Whenever you would open or update a code-review proposal — including anything you would normally do with a GitHub PR (`ManagePullRequest`, `gh pr create` / `gh pr edit`, opening a PR URL for review):
 
-1. **Prefer** the `boxci-github-patch` skill ([boxci](https://boxci.boxd.sh) — `POST https://boxci.boxd.sh/api/patches/from-github`).
-2. **Do not** open patches by running `git push rad …`, the `rad-patch` skill, or the Radicle MCP `create_patch` tool from this VM unless the user explicitly asks for a local `rad` push (Cloud clones usually have no usable `rad` remote / identity).
-3. Push the GitHub commit first, then ask [boxci](https://boxci.boxd.sh) to cherry-pick it onto Radicle `main` and open the patch. Poll the run until `patch_id=` appears; report that id and the Garden URL.
-4. If cherry-pick conflicts, rebase the fix onto the current Radicle tip, force-push the GitHub branch, and retry boxci — do not fall back to local `rad push`.
+1. **Create a [boxci](https://boxci.boxd.sh) Radicle patch instead.** Use the `boxci-github-patch` skill (`POST https://boxci.boxd.sh/api/patches/from-github`).
+2. Push the GitHub commit/branch first (needed so boxci can fetch the SHA), then call [boxci](https://boxci.boxd.sh) to cherry-pick onto Radicle `main` and open the patch.
+3. Poll `GET https://boxci.boxd.sh/api/runs/<run_id>` until finished; surface `patch_id=` from the `github-patch` step (and a Garden/explorer link). Do **not** report a GitHub PR URL as the review artifact.
+4. Do **not** call `ManagePullRequest`, `gh pr create`, `git push rad …`, the `rad-patch` skill, or Radicle MCP `create_patch` unless the user explicitly asks for a GitHub PR or a local `rad` push.
+5. If cherry-pick conflicts, rebase the fix onto the current Radicle tip, force-push the GitHub branch, and retry boxci — do not fall back to a GitHub PR or local `rad push`.
 
 **boxci:** [https://boxci.boxd.sh](https://boxci.boxd.sh) · merge pipeline [`.boxci/pipeline.yml`](.boxci/pipeline.yml) · helpers [`scripts/boxci/`](scripts/boxci/)  
 **This repo’s Radicle RID:** [`rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3`](https://nandi.radicle.garden/rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3)  
 **GitHub:** `https://github.com/codegod100/browse.git`
 
-`.cursor/environment.json` only installs personal Cursor skills (including `boxci-github-patch`). It does not set review workflow; that preference lives here.
+`.cursor/environment.json` only installs personal Cursor skills (including `boxci-github-patch`). It does not set review workflow; that preference lives here and in `.cursor/rules/boxci-patch.mdc`.
