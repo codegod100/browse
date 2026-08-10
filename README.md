@@ -47,7 +47,20 @@ RID: [`rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3`](https://nandi.radicle.garden/rad:z2QL
 
 ## View API
 
-Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.gleam`](android/gleam/browse/src/browse.gleam) (`header`, `md_body`, `file_list`, `commit_list`, …). Those pack to int opcodes; Rust [`android/src/view_api.rs`](android/src/view_api.rs) decodes them onto Vidya widgets. Dynamic text/rows live in `ViewModel` (host), not in Wasm.
+Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.gleam`](android/gleam/browse/src/browse.gleam) (`header`, `md_body`, `file_list`, `commit_list`, …). Those pack to int opcodes; Rust [`android/src/view_api.rs`](android/src/view_api.rs) decodes them onto Vidya widgets. Dynamic repo rows live in `ViewModel` (host). Enter inventory (recent + search) is host-owned; Gleam owns enter chrome, help/about, and viewing/error copy.
+
+### Wasm strings
+
+When the guest is built with Gleam Wasm **strings**, it should export:
+
+| Export | Role |
+|--------|------|
+| `browse__view_text(model, i) -> String` | Guest UI copy for opcode `i` |
+| `browse__label(id) -> String` | Shared chrome labels (Open/RID/Files/…) |
+| `memory` | Linear memory holding managed values |
+| `gleam_string_utf8_len` / `gleam_string_utf8_ptr` (or `__gleam_string_*`) | Inspect a managed `String` as UTF-8 |
+
+Host path: [`android/src/gleam_guest.rs`](android/src/gleam_guest.rs). Hermetic builds use `android/gleam/browse/prebuilt/browse.wasm` (from `tools/gen_browse_wat.py` + `browse.wat`).
 
 ## Layout
 
@@ -55,13 +68,14 @@ Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.glea
 |------|------|
 | `android/` | Shared lib + Android NativeActivity (`cargo-apk`) |
 | `host/` | Desktop binary (`browse`) |
-| `android/gleam/browse/src/browse.gleam` | TEA + view DSL → opcodes |
+| `android/gleam/browse/src/browse.gleam` | TEA screens (enter/viewing/error/noprof/help/about) + labels + view DSL |
+| `tools/gen_browse_wat.py` | Regenerates string-capable `android/gleam/browse/prebuilt/browse.{wat,wasm}` |
 | `android/src/components/` | Meta, Readme, RepoBrowser (Files/Commits/Patches/Issues/Jobs; status tabs + search) |
 | `android/src/view_api.rs` | Host paint API (`Op` / `ViewModel` → components) |
 | `android/src/markdown.rs` | README via pulldown-cmark → Vidya text |
 | `android/src/rad.rs` | `Profile::load` / `create_profile` + open by RID → snapshot |
-| `android/src/gleam_guest.rs` | wasmtime + `browse__*` exports |
-| `android/src/gleam_bridge.rs` | opcode fetch → `view_api` |
+| `android/src/gleam_guest.rs` | wasmtime + `browse__*` exports + String decode |
+| `android/src/gleam_bridge.rs` | opcode/text fetch → `view_api` |
 | `android/src/app.rs` | window, RID field, Open effect |
 | `android/src/recent.rs` | recently viewed repos (`~/.config/browse/recent.json`) |
 | `android/src/tab_prefs.rs` | per-repo tab + status filters (`~/.config/browse/tabs.json`) |

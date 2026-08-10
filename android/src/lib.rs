@@ -93,7 +93,12 @@ pub fn run_smoke(rid: Option<&str>) -> eframe::Result {
     let model = gleam_guest::init().expect("gleam init");
     let model = gleam_guest::update(model, gleam_bridge::MSG_LOADED).expect("gleam loaded");
     let len = gleam_guest::view_len(model).expect("view_len");
-    println!("gleam screen=viewing opcodes={len}");
+    let strings = if gleam_guest::has_view_text() {
+        "view_text"
+    } else {
+        "vocab-fallback"
+    };
+    println!("gleam screen=viewing opcodes={len} strings={strings}");
     Ok(())
 }
 
