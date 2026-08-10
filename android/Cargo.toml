@@ -38,6 +38,7 @@ radicle = { version = "0.25", default-features = false }
 radicle-job = { path = "vendor/radicle-job" }
 thiserror = "2"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+webbrowser = "1.0"
 # Matching radicle's git2 (object kinds for tree vs blob).
 git2 = { version = "0.21", default-features = false }
 serde = { version = "1", features = ["derive"] }

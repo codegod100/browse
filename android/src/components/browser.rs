@@ -1206,14 +1206,14 @@ fn job_detail(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &RepoUi) {
                     short_uuid(&run.run_id)
                 ),
             );
-            if linkify::is_url(&run.log) {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = th.spacing.xs;
-                    dim_label(ui, th, "log");
-                    linkify::dim_link(ui, th, &run.log);
-                });
+            // Log is a typed URL on the job COB — always render it as a real link,
+            // on its own line so wrapping/hit-testing stay reliable in narrow panes.
+            dim_label(ui, th, "log");
+            let log = run.log.trim();
+            if linkify::is_url(log) {
+                linkify::link(ui, th, log);
             } else {
-                linkify::dim(ui, th, &format!("log {}", run.log));
+                linkify::dim(ui, th, log);
             }
             dim_label(ui, th, &format!("ts {}", run.timestamp_secs));
             ui.add_space(th.spacing.md);
