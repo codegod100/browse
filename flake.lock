@@ -46,16 +46,16 @@
     "vidya": {
       "flake": false,
       "locked": {
-        "lastModified": 1786150964,
-        "narHash": "sha256-IJWX1/AOVdsSIqTWJWqyJfSzY5gyya/MMzqhoH7QhuU=",
-        "ref": "main",
-        "rev": "1129399645a657c0b6ced1d7c0eb25a667b05dde",
-        "revCount": 25,
+        "lastModified": 1786343876,
+        "narHash": "sha256-7xt+1bygvICCn/3gKAiHDAu1TrRPNT7YL9MNGfGRGDg=",
+        "ref": "refs/namespaces/z6MkknknvqZkuDxZ5DtKqy3Ef11wnWFHByfamcoMdN754CG2/refs/heads/keyboard-api",
+        "rev": "99467bfd21c6f79392fef8fff9ec8c7522bfadc7",
+        "revCount": 26,
         "type": "git",
         "url": "https://nandi.radicle.garden/z2UqGTRH21s3pHnJgSuMwRaPPNNcW.git"
       },
       "original": {
-        "ref": "main",
+        "ref": "refs/namespaces/z6MkknknvqZkuDxZ5DtKqy3Ef11wnWFHByfamcoMdN754CG2/refs/heads/keyboard-api",
         "type": "git",
         "url": "https://nandi.radicle.garden/z2UqGTRH21s3pHnJgSuMwRaPPNNcW.git"
       }

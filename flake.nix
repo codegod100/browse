@@ -13,8 +13,11 @@
     };
     # Path deps: android → ../../vidya, host → ../android.
     # Pin vidya so `nix build` works without a monorepo checkout.
+    # `keyboard-api` branch ships the soft keyboard + clipboard API natively
+    # (no browse-carried patch needed). The radicle garden gateway only mirrors
+    # the default branch at top level, so pin the delegate's namespaced ref.
     vidya = {
-      url = "git+https://nandi.radicle.garden/z2UqGTRH21s3pHnJgSuMwRaPPNNcW.git?ref=main";
+      url = "git+https://nandi.radicle.garden/z2UqGTRH21s3pHnJgSuMwRaPPNNcW.git?ref=refs/namespaces/z6MkknknvqZkuDxZ5DtKqy3Ef11wnWFHByfamcoMdN754CG2/refs/heads/keyboard-api";
       flake = false;
     };
   };
@@ -89,20 +92,6 @@
           cp -a ${browseFiltered}/. $out/browse/
           cp -a ${vidya}/. $out/vidya/
           chmod -R u+w $out
-          # Soft keyboard + clipboard API (includes android winit dep). Fall
-          # back to the older winit-only patch when the tip already ships it.
-          if [ -f ${./patches/vidya-keyboard-api.patch} ] \
-            && patch -p1 -d $out/vidya --forward --batch \
-              < ${./patches/vidya-keyboard-api.patch}; then
-            true
-          else
-            rm -f $out/vidya/*.rej $out/vidya/Cargo.toml.rej 2>/dev/null || true
-            if [ -f ${./patches/vidya-android-winit.patch} ]; then
-              patch -p1 -d $out/vidya --forward --batch \
-                < ${./patches/vidya-android-winit.patch} || true
-              rm -f $out/vidya/*.rej $out/vidya/Cargo.toml.rej 2>/dev/null || true
-            fi
-          fi
           rm -rf $out/browse/{.git,host/target,android/target} 2>/dev/null || true
         '';
 

@@ -43,23 +43,6 @@ sync_input() {
   find "$dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
   cp -a "$src/." "$dest/"
   chmod -R u+w "$dest"
-  if [[ "$input" == "vidya" ]]; then
-    # Prefer keyboard API patch (includes android winit dep). Fall back to the
-    # older winit-only patch when the tip already has keyboard helpers.
-    local kb="$ROOT/patches/vidya-keyboard-api.patch"
-    local winit="$ROOT/patches/vidya-android-winit.patch"
-    if [[ -f "$kb" ]] && patch -p1 -d "$dest" --forward --batch < "$kb" >/dev/null; then
-      log "applied vidya-keyboard-api.patch"
-    else
-      rm -f "$dest"/*.rej "$dest"/Cargo.toml.rej 2>/dev/null || true
-      if [[ -f "$winit" ]]; then
-        if ! patch -p1 -d "$dest" --forward --batch < "$winit" >/dev/null; then
-          log "vidya-android-winit.patch did not apply (ok if tip already has the fix)"
-          rm -f "$dest"/*.rej "$dest"/Cargo.toml.rej 2>/dev/null || true
-        fi
-      fi
-    fi
-  fi
 }
 
 want() {
