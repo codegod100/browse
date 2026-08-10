@@ -7,6 +7,7 @@ use eframe::egui::{
 use radicle::Profile;
 use vidya::{body, button, card, dim_label, primary_button, side_by_side, title_2, Theme};
 
+use crate::linkify;
 use crate::markdown;
 use crate::rad;
 use crate::view_api::{CommitRow, FileRow, IssueRow, JobRow, PatchRow, ViewModel};
@@ -866,7 +867,7 @@ fn patch_detail(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &Rep
         } else if looks_like_md(&p.description) {
             markdown::render(ui, th, &p.description);
         } else {
-            body(ui, th, &p.description);
+            linkify::body(ui, th, &p.description);
         }
     });
 }
@@ -988,7 +989,7 @@ fn issue_detail(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &Repo
         } else if looks_like_md(&issue.description) {
             markdown::render(ui, th, &issue.description);
         } else {
-            body(ui, th, &issue.description);
+            linkify::body(ui, th, &issue.description);
         }
         if issue.replies > 0 {
             ui.add_space(th.spacing.lg);
@@ -1207,7 +1208,15 @@ fn job_detail(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &RepoUi) {
                     short_uuid(&run.run_id)
                 ),
             );
-            dim_label(ui, th, &format!("log {}", run.log));
+            if linkify::is_url(&run.log) {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = th.spacing.xs;
+                    dim_label(ui, th, "log");
+                    linkify::dim_link(ui, th, &run.log);
+                });
+            } else {
+                linkify::dim(ui, th, &format!("log {}", run.log));
+            }
             dim_label(ui, th, &format!("ts {}", run.timestamp_secs));
             ui.add_space(th.spacing.md);
         }

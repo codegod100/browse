@@ -4,6 +4,7 @@ mod app;
 mod components;
 mod gleam_bridge;
 mod gleam_guest;
+mod linkify;
 mod markdown;
 mod rad;
 mod recent;

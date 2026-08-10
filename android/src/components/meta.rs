@@ -1,8 +1,9 @@
 //! Repo identity header: name, description, RID, head.
 
 use eframe::egui;
-use vidya::{body, dim_label, title_2, Theme};
+use vidya::{dim_label, title_2, Theme};
 
+use crate::linkify;
 use crate::view_api::ViewModel;
 
 pub struct Meta;
@@ -17,7 +18,7 @@ impl Meta {
         title_2(ui, th, name);
         ui.add_space(th.spacing.sm);
         if !desc.is_empty() {
-            body(ui, th, desc);
+            linkify::body(ui, th, desc);
             ui.add_space(th.spacing.sm);
         }
         dim_label(ui, th, rid);

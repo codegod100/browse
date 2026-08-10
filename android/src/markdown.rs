@@ -2,7 +2,9 @@
 
 use eframe::egui::{self, CursorIcon, FontFamily, OpenUrl, RichText, Sense};
 use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd};
-use vidya::{body, dim_label, title, title_2, Theme};
+use vidya::{dim_label, title, title_2, Theme};
+
+use crate::linkify;
 
 pub fn render(ui: &mut egui::Ui, th: &Theme, markdown: &str) {
     if markdown.is_empty() || markdown == "(no README)" {
@@ -40,10 +42,28 @@ pub fn render(ui: &mut egui::Ui, th: &Theme, markdown: &str) {
         };
         let line = format!("{prefix}{text}");
         match *heading_level {
-            Some(1) => title(ui, th, &line),
-            Some(2) => title_2(ui, th, &line),
-            Some(_) => title_2(ui, th, &line),
-            None => body(ui, th, &line),
+            // Headings keep title styling; still autolink bare URLs inside them.
+            Some(1) => {
+                if linkify::segments(&line)
+                    .iter()
+                    .any(|s| matches!(s, linkify::Segment::Url(_)))
+                {
+                    linkify::body(ui, th, &line);
+                } else {
+                    title(ui, th, &line);
+                }
+            }
+            Some(_) => {
+                if linkify::segments(&line)
+                    .iter()
+                    .any(|s| matches!(s, linkify::Segment::Url(_)))
+                {
+                    linkify::body(ui, th, &line);
+                } else {
+                    title_2(ui, th, &line);
+                }
+            }
+            None => linkify::body(ui, th, &line),
         }
         ui.add_space(th.spacing.xs);
         inline.clear();
@@ -114,21 +134,25 @@ pub fn render(ui: &mut egui::Ui, th: &Theme, markdown: &str) {
                     } else {
                         link_text.trim().to_string()
                     };
-                    let response = ui
-                        .add(
-                            egui::Label::new(
-                                RichText::new(label)
-                                    .size(th.type_scale.body)
-                                    .color(th.palette.accent)
-                                    .underline(),
+                    if label == url {
+                        linkify::link(ui, th, &url);
+                    } else {
+                        let response = ui
+                            .add(
+                                egui::Label::new(
+                                    RichText::new(label)
+                                        .size(th.type_scale.body)
+                                        .color(th.palette.accent)
+                                        .underline(),
+                                )
+                                .sense(Sense::click())
+                                .wrap(),
                             )
-                            .sense(Sense::click())
-                            .wrap(),
-                        )
-                        .on_hover_cursor(CursorIcon::PointingHand)
-                        .on_hover_text(&url);
-                    if response.clicked() {
-                        ui.ctx().open_url(OpenUrl::new_tab(url));
+                            .on_hover_cursor(CursorIcon::PointingHand)
+                            .on_hover_text(&url);
+                        if response.clicked() {
+                            ui.ctx().open_url(OpenUrl::new_tab(url));
+                        }
                     }
                     ui.add_space(th.spacing.xs);
                 }
