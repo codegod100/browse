@@ -441,8 +441,8 @@ impl RepoBrowser {
                 state.tab == Tab::Issues,
                 &issues,
                 Some("Press again to reload"),
-                false,
-                false,
+                cobs_loading,
+                true,
                 || {
                     if state.tab == Tab::Issues {
                         state.reload_requested = true;
@@ -458,8 +458,8 @@ impl RepoBrowser {
                 state.tab == Tab::Jobs,
                 &jobs,
                 Some("Press again to reload"),
-                false,
-                false,
+                cobs_loading,
+                true,
                 || {
                     if state.tab == Tab::Jobs {
                         state.reload_requested = true;

@@ -18,7 +18,7 @@ use crate::keyboard::{clipboard_text, normalize_paste, set_clipboard_text, sync_
 use crate::components::{RepoList, RepoUi, Tab};
 use crate::gleam_bridge::{self, PaintResult, Slots, MSG_BACK, MSG_FAILED, MSG_LOADED, MSG_OPEN};
 use crate::gleam_guest;
-use crate::rad::{self, RepoSummary, RepoView};
+use crate::rad::{self, CobKind, CobLoadMode, CobsSnapshot, RepoSummary, RepoView};
 use crate::recent::{self, RecentRepo};
 use crate::tab_prefs::{self, TabPrefsStore};
 use crate::view_api::ui_label;
@@ -30,16 +30,10 @@ enum LoadMsg {
     /// Identity + files + commits — enough to leave the enter page.
     Core(Result<RepoView, String>),
     /// Patches / issues / jobs for a RID already shown from [`LoadMsg::Core`].
+    /// `None` fields mean leave the existing list untouched (kind-specific reload).
     Cobs {
         rid: String,
-        result: Result<
-            (
-                Vec<crate::view_api::PatchRow>,
-                Vec<crate::view_api::IssueRow>,
-                Vec<crate::view_api::JobRow>,
-            ),
-            String,
-        >,
+        result: Result<CobsSnapshot, String>,
     },
     /// Local storage inventory for the enter (node) page.
     Inventory(Result<Vec<RepoSummary>, String>),
@@ -226,6 +220,7 @@ impl BrowseApp {
     }
 
     /// Start a background reload for the repo currently on screen (tab re-press).
+    /// Skips core (files/commits) and only refreshes the active COB kind.
     fn reload_current(&mut self, ctx: &egui::Context) {
         if self.profile.is_none() {
             self.repo_ui.reload_requested = false;
@@ -240,7 +235,46 @@ impl BrowseApp {
         if rid.trim().is_empty() {
             return;
         }
-        self.start_load(ctx, rid);
+        let kind = match self.repo_ui.tab {
+            Tab::Patches => CobKind::Patches,
+            Tab::Issues => CobKind::Issues,
+            Tab::Jobs => CobKind::Jobs,
+            // Files / Commits don't set reload_requested; fall back to all COBs.
+            Tab::Files | Tab::Commits => CobKind::All,
+        };
+        self.start_cobs_reload(ctx, rid, kind);
+    }
+
+    /// COBs-only reload (no files/commits) — used when re-pressing Patches/Issues/Jobs.
+    fn start_cobs_reload(&mut self, ctx: &egui::Context, rid: String, kind: CobKind) {
+        if self.opening || self.cobs_loading {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.load_rx = Some(rx);
+        self.opening = false;
+        self.cobs_loading = true;
+        self.inventory_loading = false;
+        self.reload_in_flight = true;
+        self.err = None;
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let profile = match rad::load_profile() {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = tx.send(LoadMsg::Cobs {
+                        rid,
+                        result: Err(e.to_string()),
+                    });
+                    ctx.request_repaint();
+                    return;
+                }
+            };
+            let result =
+                rad::load_cobs(&profile, &rid, CobLoadMode::Fresh, kind).map_err(|e| e.to_string());
+            let _ = tx.send(LoadMsg::Cobs { rid, result });
+            ctx.request_repaint();
+        });
     }
 
     /// Load local storage inventory off the UI thread (enter / node page).
@@ -282,6 +316,12 @@ impl BrowseApp {
         self.inventory_loading = false;
         self.reload_in_flight =
             self.model == Some(1) && !self.repo_ui.rid.is_empty() && self.repo_ui.rid == rid;
+        // Re-open of the same RID wants fresh COBs; first open prefers the SQLite cache.
+        let cobs_mode = if self.reload_in_flight {
+            CobLoadMode::Fresh
+        } else {
+            CobLoadMode::Fast
+        };
         self.err = None;
         let ctx = ctx.clone();
         std::thread::spawn(move || {
@@ -300,7 +340,8 @@ impl BrowseApp {
             if !core_ok {
                 return;
             }
-            let cobs = rad::open_repo_cobs(&profile, &rid).map_err(|e| e.to_string());
+            let cobs = rad::load_cobs(&profile, &rid, cobs_mode, CobKind::All)
+                .map_err(|e| e.to_string());
             let _ = tx.send(LoadMsg::Cobs {
                 rid,
                 result: cobs,
@@ -361,8 +402,8 @@ impl BrowseApp {
                     self.cobs_loading = false;
                     self.load_rx = None;
                     match result {
-                        Ok((patches, issues, jobs)) => {
-                            self.apply_cobs(&rid, patches, issues, jobs);
+                        Ok(snap) => {
+                            self.apply_cobs(&rid, snap);
                         }
                         Err(msg) => {
                             self.reload_in_flight = false;
@@ -385,22 +426,22 @@ impl BrowseApp {
         }
     }
 
-    fn apply_cobs(
-        &mut self,
-        rid: &str,
-        patches: Vec<crate::view_api::PatchRow>,
-        issues: Vec<crate::view_api::IssueRow>,
-        jobs: Vec<crate::view_api::JobRow>,
-    ) {
+    fn apply_cobs(&mut self, rid: &str, snap: CobsSnapshot) {
         if self.repo_ui.rid != rid {
             self.reload_in_flight = false;
             return;
         }
         let toast_reload = self.reload_in_flight;
         self.reload_in_flight = false;
-        self.slots.patches = patches;
-        self.slots.issues = issues;
-        self.slots.jobs = jobs;
+        if let Some(patches) = snap.patches {
+            self.slots.patches = patches;
+        }
+        if let Some(issues) = snap.issues {
+            self.slots.issues = issues;
+        }
+        if let Some(jobs) = snap.jobs {
+            self.slots.jobs = jobs;
+        }
         self.repo_ui
             .prune_cob_selections(&self.slots.patches, &self.slots.issues, &self.slots.jobs);
         self.err = None;
@@ -735,8 +776,8 @@ impl eframe::App for BrowseApp {
                                 return;
                             }
                             ui.add_space(th.spacing.sm);
-                            // Reloads keep the viewing chrome; spinner on Patches covers
-                            // progress — don't flash "Opening repo…" on tab re-press.
+                            // Reloads keep the viewing chrome; spinner on COB tabs covers
+                            // progress — don't flash "Opening repo…" on same-RID Open.
                             if self.is_opening() && !self.reload_in_flight {
                                 dim_label(ui, &th, "Opening repo…");
                                 ui.add_space(th.spacing.sm);
