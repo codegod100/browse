@@ -1,6 +1,6 @@
 //! System clipboard for Android NativeActivity.
 //!
-//! egui-winit has no OS clipboard on Android. Vidya's helpers post to the Java
+//! egui-winit has no OS clipboard on Android. We post to the Java
 //! UI thread, but API 29+ often still returns null unless a real text `View`
 //! holds input focus. We create a 1×1 `EditText`, focus it, then read
 //! `ClipboardManager`.
