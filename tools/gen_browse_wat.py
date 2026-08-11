@@ -105,8 +105,6 @@ SCREENS = {
         (pack(5, 2), None),
     ],
     1: [  # viewing
-        (pack(7), "Browse"),
-        (pack(5, 1), None),
         (button(0, 1), "Back"),
         (pack(5, 2), None),
         (pack(8), None),
