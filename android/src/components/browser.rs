@@ -383,8 +383,21 @@ impl RepoBrowser {
         model: &ViewModel,
         state: &mut RepoUi,
         profile: Option<&Profile>,
+        leading: Vec<(i64, bool, String)>,
+        effects: &mut crate::view_api::PaintEffects,
     ) {
         ui.horizontal(|ui| {
+            for (msg, primary, label) in &leading {
+                let clicked = if *primary {
+                    primary_button(ui, th, label).clicked()
+                } else {
+                    button(ui, th, label).clicked()
+                };
+                if clicked {
+                    effects.pending_msg = Some(*msg);
+                }
+                ui.add_space(th.spacing.sm);
+            }
             let files = ui_label(5);
             let commits = ui_label(6);
             let patches = ui_label(26);

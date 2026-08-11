@@ -105,14 +105,13 @@ SCREENS = {
         (pack(5, 2), None),
     ],
     1: [  # viewing
-        (button(0, 1), "Back"),
-        (pack(5, 2), None),
         (pack(8), None),
         (pack(1), "Repository"),
         (pack(5, 1), None),
         (pack(0), None),
         (pack(9), None),
         (pack(5, 2), None),
+        (button(0, 1), "Back"),
         (pack(15), None),
     ],
     2: [  # error
