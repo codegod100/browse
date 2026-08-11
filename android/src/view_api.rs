@@ -313,6 +313,7 @@ pub fn paint(
     model: &ViewModel,
     repo_ui: &mut RepoUi,
     profile: Option<&Profile>,
+    cobs_loading: bool,
 ) -> PaintEffects {
     let mut effects = PaintEffects::default();
     let mut button_row: Vec<(i64, bool, String)> = Vec::new();
@@ -394,7 +395,15 @@ pub fn paint(
                     let mut inner_effects = PaintEffects::default();
                     card(ui, th, |ui| {
                         inner_effects = paint(
-                            ui, th, ops, i + 1, close, model, repo_ui, profile,
+                            ui,
+                            th,
+                            ops,
+                            i + 1,
+                            close,
+                            model,
+                            repo_ui,
+                            profile,
+                            cobs_loading,
                         );
                     });
                     inner_effects
@@ -444,6 +453,7 @@ pub fn paint(
                     profile,
                     std::mem::take(&mut button_row),
                     &mut effects,
+                    cobs_loading,
                 );
                 i += 1;
             }

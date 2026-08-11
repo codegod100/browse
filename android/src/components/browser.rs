@@ -1,8 +1,8 @@
 //! Interactive Files / Commits / Patches / Issues / Jobs browser (host-owned selection).
 
 use eframe::egui::{
-    self, Align, CursorIcon, FontFamily, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke,
-    StrokeKind, UiBuilder, Vec2,
+    self, Align, CornerRadius, CursorIcon, FontFamily, FontId, Layout, Margin, Pos2, Rect,
+    RichText, Sense, Stroke, StrokeKind, UiBuilder, Vec2,
 };
 use radicle::Profile;
 use vidya::{body, button, card, dim_label, primary_button, side_by_side, title_2, Theme};
@@ -385,6 +385,7 @@ impl RepoBrowser {
         profile: Option<&Profile>,
         leading: Vec<(i64, bool, String)>,
         effects: &mut crate::view_api::PaintEffects,
+        cobs_loading: bool,
     ) {
         ui.horizontal(|ui| {
             for (msg, primary, label) in &leading {
@@ -403,14 +404,14 @@ impl RepoBrowser {
             let patches = ui_label(26);
             let issues = ui_label(27);
             let jobs = ui_label(28);
-            tab_btn(ui, th, state.tab == Tab::Files, &files, None, || {
+            tab_btn(ui, th, state.tab == Tab::Files, &files, None, false, || {
                 if state.tab != Tab::Files {
                     state.tab = Tab::Files;
                     state.prefs_dirty = true;
                 }
             });
             ui.add_space(th.spacing.sm);
-            tab_btn(ui, th, state.tab == Tab::Commits, &commits, None, || {
+            tab_btn(ui, th, state.tab == Tab::Commits, &commits, None, false, || {
                 if state.tab != Tab::Commits {
                     state.tab = Tab::Commits;
                     state.prefs_dirty = true;
@@ -423,6 +424,7 @@ impl RepoBrowser {
                 state.tab == Tab::Patches,
                 &patches,
                 Some("Press again to reload"),
+                cobs_loading,
                 || {
                     if state.tab == Tab::Patches {
                         state.reload_requested = true;
@@ -439,6 +441,7 @@ impl RepoBrowser {
                 state.tab == Tab::Issues,
                 &issues,
                 Some("Press again to reload"),
+                false,
                 || {
                     if state.tab == Tab::Issues {
                         state.reload_requested = true;
@@ -455,6 +458,7 @@ impl RepoBrowser {
                 state.tab == Tab::Jobs,
                 &jobs,
                 Some("Press again to reload"),
+                false,
                 || {
                     if state.tab == Tab::Jobs {
                         state.reload_requested = true;
@@ -483,21 +487,95 @@ fn tab_btn(
     active: bool,
     label: &str,
     hover: Option<&str>,
+    loading: bool,
     on: impl FnOnce(),
 ) {
-    let response = if active {
+    let response = if loading {
+        tab_btn_loading(ui, th, active, label)
+    } else if active {
         primary_button(ui, th, label)
     } else {
         button(ui, th, label)
     };
-    let response = if let Some(tip) = hover.filter(|_| active) {
+    let response = if loading {
+        response.on_hover_text("Loading patches…")
+    } else if let Some(tip) = hover.filter(|_| active) {
         response.on_hover_text(tip)
     } else {
         response
     };
-    if response.clicked() {
+    if response.clicked() && !loading {
         on();
     }
+}
+
+/// Patches tab while COBs load: same chrome as other tabs, spinner instead of status copy.
+fn tab_btn_loading(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    active: bool,
+    label: &str,
+) -> egui::Response {
+    let p = &th.palette;
+    let (fg, bg, stroke) = if active {
+        (p.accent_fg, p.accent, Stroke::NONE)
+    } else {
+        (p.button_fg, p.button_bg, Stroke::new(1.0_f32, p.border_soft))
+    };
+
+    let spinner_size = th.type_scale.body;
+    let gap = th.spacing.xs;
+    let h_pad = th.spacing.sm + 2.0;
+
+    let galley = ui.fonts(|f| {
+        f.layout_no_wrap(
+            label.to_owned(),
+            FontId::proportional(th.type_scale.body),
+            fg,
+        )
+    });
+
+    let height = th.spacing.control_height;
+    let width = h_pad + galley.size().x + gap + spinner_size + h_pad;
+    let (rect, mut response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let fill = if !active && response.hovered() {
+            p.button_hover
+        } else if active && response.hovered() {
+            p.accent_hover
+        } else {
+            bg
+        };
+        ui.painter().rect(
+            rect,
+            CornerRadius::same(th.spacing.radius_md as u8),
+            fill,
+            stroke,
+            StrokeKind::Inside,
+        );
+        let text_pos = egui::pos2(
+            rect.left() + h_pad,
+            rect.center().y - galley.size().y * 0.5,
+        );
+        ui.painter().galley(text_pos, galley, fg);
+        let spinner_rect = Rect::from_center_size(
+            egui::pos2(
+                rect.right() - h_pad - spinner_size * 0.5,
+                rect.center().y,
+            ),
+            Vec2::splat(spinner_size),
+        );
+        egui::Spinner::new()
+            .size(spinner_size)
+            .color(fg)
+            .paint_at(ui, spinner_rect);
+    }
+
+    if let Some(cursor) = ui.visuals().interact_cursor {
+        response = response.on_hover_cursor(cursor);
+    }
+    response
 }
 
 /// Left list pane tracks a fraction of available width (no fixed px cap).
@@ -1332,7 +1410,7 @@ fn status_tabs<S: Copy + PartialEq>(
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = th.spacing.sm;
         for &s in statuses {
-            tab_btn(ui, th, active == s, s.label(), None, || on_select(s));
+            tab_btn(ui, th, active == s, s.label(), None, false, || on_select(s));
         }
     });
 }
