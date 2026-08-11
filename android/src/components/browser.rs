@@ -387,7 +387,10 @@ impl RepoBrowser {
         effects: &mut crate::view_api::PaintEffects,
         cobs_loading: bool,
     ) {
-        ui.horizontal(|ui| {
+        // Wrap on narrow viewports — Back + five tabs no longer fit one row
+        // after SWARM-54 (overflow clipped Jobs into a vertical strip).
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = th.spacing.sm;
             for (msg, primary, label) in &leading {
                 let clicked = if *primary {
                     primary_button(ui, th, label).clicked()
@@ -397,7 +400,6 @@ impl RepoBrowser {
                 if clicked {
                     effects.pending_msg = Some(*msg);
                 }
-                ui.add_space(th.spacing.sm);
             }
             let files = ui_label(5);
             let commits = ui_label(6);
@@ -410,14 +412,12 @@ impl RepoBrowser {
                     state.prefs_dirty = true;
                 }
             });
-            ui.add_space(th.spacing.sm);
             tab_btn(ui, th, state.tab == Tab::Commits, &commits, None, false, || {
                 if state.tab != Tab::Commits {
                     state.tab = Tab::Commits;
                     state.prefs_dirty = true;
                 }
             });
-            ui.add_space(th.spacing.sm);
             tab_btn(
                 ui,
                 th,
@@ -434,7 +434,6 @@ impl RepoBrowser {
                     }
                 },
             );
-            ui.add_space(th.spacing.sm);
             tab_btn(
                 ui,
                 th,
@@ -451,7 +450,6 @@ impl RepoBrowser {
                     }
                 },
             );
-            ui.add_space(th.spacing.sm);
             tab_btn(
                 ui,
                 th,
