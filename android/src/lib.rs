@@ -148,21 +148,27 @@ fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
             std::env::set_var("RAD_HOME", dir);
         }
     }
-    // Vendored OpenSSL (git2's https transport, used to seed unseeded RIDs
+    // git2's https transport (vendored OpenSSL, used to seed unseeded RIDs
     // from a web gateway — see `rad::seed_gateways`) has no Android system
     // trust store to fall back on inside the app sandbox, so every TLS
-    // handshake otherwise fails certificate verification. Extract our
-    // bundled CA bundle to app-private storage once and point OpenSSL at
-    // it via the env var it already knows how to read.
-    if std::env::var_os("SSL_CERT_FILE").is_none() {
-        if let Some(dir) = android_app.internal_data_path() {
-            let cert_path = dir.join("cacert.pem");
-            const CACERT_PEM: &[u8] = include_bytes!("../certs/cacert.pem");
-            match std::fs::write(&cert_path, CACERT_PEM) {
-                // SAFETY: single-threaded before other threads touch the env.
-                Ok(()) => std::env::set_var("SSL_CERT_FILE", &cert_path),
-                Err(e) => log::error!("write bundled cacert.pem: {e}"),
+    // handshake otherwise failed certificate verification (libgit2
+    // GIT_ECERTIFICATE, error code -17). Setting SSL_CERT_FILE alone isn't
+    // enough — libgit2's OpenSSL backend doesn't consult it; it has to be
+    // told explicitly via git2's opts API. Extract our bundled CA bundle to
+    // app-private storage once and point libgit2 at it directly (the env
+    // var is set too, for anything else that does read it).
+    if let Some(dir) = android_app.internal_data_path() {
+        let cert_path = dir.join("cacert.pem");
+        const CACERT_PEM: &[u8] = include_bytes!("../certs/cacert.pem");
+        match std::fs::write(&cert_path, CACERT_PEM) {
+            Ok(()) => {
+                // SAFETY: single-threaded, before any git2/network use.
+                std::env::set_var("SSL_CERT_FILE", &cert_path);
+                if let Err(e) = unsafe { git2::opts::set_ssl_cert_file(&cert_path) } {
+                    log::error!("git2 set_ssl_cert_file: {e}");
+                }
             }
+            Err(e) => log::error!("write bundled cacert.pem: {e}"),
         }
     }
     log::info!("browse android_main start");
