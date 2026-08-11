@@ -17,26 +17,22 @@ impl Commits {
             return;
         }
 
+        // Expand to natural height; page scroll owns overflow (no nested list scroll).
         let show = n.min(model.commits.len());
-        egui::ScrollArea::vertical()
-            .id_salt("commits_list")
-            .max_height(360.0)
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                for c in model.commits.iter().take(show) {
-                    let summary = c.summary.clone();
-                    let meta = format!("{} · {}", c.short_id, c.author);
-                    lead_trail(
-                        ui,
-                        |ui| {
-                            title_2(ui, th, &summary);
-                        },
-                        |ui| {
-                            dim_label(ui, th, &meta);
-                        },
-                    );
-                    ui.add_space(th.spacing.sm);
-                }
-            });
+        ui.set_min_width(ui.available_width());
+        for c in model.commits.iter().take(show) {
+            let summary = c.summary.clone();
+            let meta = format!("{} · {}", c.short_id, c.author);
+            lead_trail(
+                ui,
+                |ui| {
+                    title_2(ui, th, &summary);
+                },
+                |ui| {
+                    dim_label(ui, th, &meta);
+                },
+            );
+            ui.add_space(th.spacing.sm);
+        }
     }
 }

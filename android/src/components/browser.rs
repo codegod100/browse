@@ -555,38 +555,43 @@ fn commits_tab(
 ) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.34);
 
-    if side_by_side(avail_w, 220.0, gap) {
-        ui.allocate_ui_with_layout(
-            Vec2::new(avail_w, avail_h),
-            Layout::left_to_right(Align::Min),
-            |ui| {
-                ui.set_min_size(Vec2::new(avail_w, avail_h));
-                ui.set_max_size(Vec2::new(avail_w, avail_h));
-                pane(ui, list_w, avail_h, |ui| {
-                    card(ui, th, |ui| {
-                        commit_list(ui, th, &model.commits, state, profile);
-                    });
-                });
+    // Expand list/detail to natural height; one page scrollbar (no nested panes).
+    page_scroll(ui, "commits_page", |ui| {
+        if side_by_side(avail_w, 220.0, gap) {
+            let rest = (avail_w - list_w - gap).max(1.0);
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(list_w, 1.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.set_min_width(list_w);
+                        ui.set_max_width(list_w);
+                        card(ui, th, |ui| {
+                            commit_list(ui, th, &model.commits, state, profile);
+                        });
+                    },
+                );
                 ui.add_space(gap);
-                let rest = (avail_w - list_w - gap).max(1.0);
-                pane(ui, rest, avail_h, |ui| {
-                    commit_detail(ui, th, state, profile);
-                });
-            },
-        );
-    } else {
-        let half = ((avail_h - gap) * 0.4).max(120.0);
-        ui.set_min_height(avail_h);
-        card(ui, th, |ui| {
-            ui.set_min_height(half);
-            commit_list(ui, th, &model.commits, state, profile);
-        });
-        ui.add_space(gap);
-        commit_detail(ui, th, state, profile);
-    }
+                ui.allocate_ui_with_layout(
+                    Vec2::new(rest, 1.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.set_min_width(rest);
+                        ui.set_max_width(rest);
+                        commit_detail(ui, th, state, profile);
+                    },
+                );
+            });
+        } else {
+            card(ui, th, |ui| {
+                commit_list(ui, th, &model.commits, state, profile);
+            });
+            ui.add_space(gap);
+            commit_detail(ui, th, state, profile);
+        }
+    });
 }
 
 fn pane(ui: &mut egui::Ui, width: f32, height: f32, add: impl FnOnce(&mut egui::Ui)) {
@@ -597,6 +602,17 @@ fn pane(ui: &mut egui::Ui, width: f32, height: f32, add: impl FnOnce(&mut egui::
         ui.set_max_size(Vec2::new(w, h));
         add(ui);
     });
+}
+
+/// Page-level scroll: content grows; one scrollbar for the tab body.
+fn page_scroll(ui: &mut egui::Ui, id: impl std::hash::Hash, add: impl FnOnce(&mut egui::Ui)) {
+    egui::ScrollArea::vertical()
+        .id_salt(id)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            add(ui);
+        });
 }
 
 fn fill_scroll(
@@ -710,20 +726,18 @@ fn commit_list(
         dim_label(ui, th, "(no commits)");
         return;
     }
-    fill_scroll(ui, "tab_commits", false, |ui| {
-        for c in commits {
-            let selected = state.selected_commit.as_deref() == Some(c.id.as_str());
-            let label = format!("{}  {}", c.short_id, c.summary);
-            let response = selectable_row(ui, th, &label, selected, false, true);
-            if response.clicked() {
-                if let Some(profile) = profile {
-                    state.select_commit(profile, &c.id);
-                }
+    for c in commits {
+        let selected = state.selected_commit.as_deref() == Some(c.id.as_str());
+        let label = format!("{}  {}", c.short_id, c.summary);
+        let response = selectable_row(ui, th, &label, selected, false, true);
+        if response.clicked() {
+            if let Some(profile) = profile {
+                state.select_commit(profile, &c.id);
             }
-            dim_label(ui, th, &c.author);
-            ui.add_space(th.spacing.sm);
         }
-    });
+        dim_label(ui, th, &c.author);
+        ui.add_space(th.spacing.sm);
+    }
 }
 
 fn patches_tab(
@@ -735,79 +749,87 @@ fn patches_tab(
 ) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.34);
 
-    if side_by_side(avail_w, 220.0, gap) {
-        ui.allocate_ui_with_layout(
-            Vec2::new(avail_w, avail_h),
-            Layout::left_to_right(Align::Min),
-            |ui| {
-                ui.set_min_size(Vec2::new(avail_w, avail_h));
-                ui.set_max_size(Vec2::new(avail_w, avail_h));
-                pane(ui, list_w, avail_h, |ui| {
-                    card(ui, th, |ui| {
-                        patch_list(ui, th, &model.patches, state, profile);
-                    });
-                });
+    page_scroll(ui, "patches_page", |ui| {
+        if side_by_side(avail_w, 220.0, gap) {
+            let rest = (avail_w - list_w - gap).max(1.0);
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(list_w, 1.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.set_min_width(list_w);
+                        ui.set_max_width(list_w);
+                        card(ui, th, |ui| {
+                            patch_list(ui, th, &model.patches, state, profile);
+                        });
+                    },
+                );
                 ui.add_space(gap);
-                let rest = (avail_w - list_w - gap).max(1.0);
-                pane(ui, rest, avail_h, |ui| {
-                    patch_detail(ui, th, &model.patches, state, profile);
-                });
-            },
-        );
-    } else {
-        let half = ((avail_h - gap) * 0.4).max(120.0);
-        ui.set_min_height(avail_h);
-        card(ui, th, |ui| {
-            ui.set_min_height(half);
-            patch_list(ui, th, &model.patches, state, profile);
-        });
-        ui.add_space(gap);
-        patch_detail(ui, th, &model.patches, state, profile);
-    }
+                ui.allocate_ui_with_layout(
+                    Vec2::new(rest, 1.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.set_min_width(rest);
+                        ui.set_max_width(rest);
+                        patch_detail(ui, th, &model.patches, state, profile);
+                    },
+                );
+            });
+        } else {
+            card(ui, th, |ui| {
+                patch_list(ui, th, &model.patches, state, profile);
+            });
+            ui.add_space(gap);
+            patch_detail(ui, th, &model.patches, state, profile);
+        }
+    });
 }
 
 fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.34);
 
-    if side_by_side(avail_w, 220.0, gap) {
-        ui.allocate_ui_with_layout(
-            Vec2::new(avail_w, avail_h),
-            Layout::left_to_right(Align::Min),
-            |ui| {
-                ui.set_min_size(Vec2::new(avail_w, avail_h));
-                ui.set_max_size(Vec2::new(avail_w, avail_h));
-                pane(ui, list_w, avail_h, |ui| {
-                    card(ui, th, |ui| {
-                        issue_list(ui, th, &model.issues, state);
-                    });
-                });
+    page_scroll(ui, "issues_page", |ui| {
+        if side_by_side(avail_w, 220.0, gap) {
+            let rest = (avail_w - list_w - gap).max(1.0);
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(list_w, 1.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.set_min_width(list_w);
+                        ui.set_max_width(list_w);
+                        card(ui, th, |ui| {
+                            issue_list(ui, th, &model.issues, state);
+                        });
+                    },
+                );
                 ui.add_space(gap);
-                let rest = (avail_w - list_w - gap).max(1.0);
-                pane(ui, rest, avail_h, |ui| {
-                    card(ui, th, |ui| {
-                        issue_detail(ui, th, &model.issues, state);
-                    });
-                });
-            },
-        );
-    } else {
-        let half = ((avail_h - gap) * 0.4).max(120.0);
-        ui.set_min_height(avail_h);
-        card(ui, th, |ui| {
-            ui.set_min_height(half);
-            issue_list(ui, th, &model.issues, state);
-        });
-        ui.add_space(gap);
-        card(ui, th, |ui| {
-            issue_detail(ui, th, &model.issues, state);
-        });
-    }
+                ui.allocate_ui_with_layout(
+                    Vec2::new(rest, 1.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.set_min_width(rest);
+                        ui.set_max_width(rest);
+                        card(ui, th, |ui| {
+                            issue_detail(ui, th, &model.issues, state);
+                        });
+                    },
+                );
+            });
+        } else {
+            card(ui, th, |ui| {
+                issue_list(ui, th, &model.issues, state);
+            });
+            ui.add_space(gap);
+            card(ui, th, |ui| {
+                issue_detail(ui, th, &model.issues, state);
+            });
+        }
+    });
 }
 
 fn patch_list(
@@ -873,25 +895,23 @@ fn patch_list(
     let show_state = status == PatchStatus::All;
     let rows: Vec<PatchRow> = filtered.into_iter().cloned().collect();
 
-    fill_scroll(ui, "tab_patches", false, |ui| {
-        for p in rows {
-            let selected = state.selected_patch.as_deref() == Some(p.id.as_str());
-            let label = if show_state {
-                format!("[{}] {}", p.state, p.title)
+    for p in rows {
+        let selected = state.selected_patch.as_deref() == Some(p.id.as_str());
+        let label = if show_state {
+            format!("[{}] {}", p.state, p.title)
+        } else {
+            p.title.clone()
+        };
+        let meta = format!("{} · {}", p.short_id, p.author);
+        let response = cob_list_row(ui, th, &p.id, &label, &meta, selected);
+        if response.clicked() {
+            if let Some(profile) = profile {
+                state.select_patch(profile, &p);
             } else {
-                p.title.clone()
-            };
-            let meta = format!("{} · {}", p.short_id, p.author);
-            let response = cob_list_row(ui, th, &p.id, &label, &meta, selected);
-            if response.clicked() {
-                if let Some(profile) = profile {
-                    state.select_patch(profile, &p);
-                } else {
-                    state.selected_patch = Some(p.id);
-                }
+                state.selected_patch = Some(p.id);
             }
         }
-    });
+    }
 }
 
 fn patch_detail(
@@ -915,117 +935,90 @@ fn patch_detail(
     };
 
     let gap = th.spacing.md;
-    // Captured from the (unscrolled) pane before the outer ScrollArea below
-    // makes available_height effectively unbounded, so the fixed-size
-    // description/paths boxes keep sane proportions instead of collapsing.
-    let avail_h = ui.available_height().max(160.0);
 
-    // The title/description + changed-files + diff stack can outgrow the
-    // pane (long descriptions, many files, big diffs). Scroll the whole
-    // page rather than truncating whatever falls off the bottom.
-    egui::ScrollArea::vertical()
-        .id_salt("patch_detail_page")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            card(ui, th, |ui| {
-                title_2(ui, th, &p.title);
-                ui.add_space(th.spacing.sm);
-                dim_label(
-                    ui,
-                    th,
-                    &format!(
-                        "{} · {} · {} · {} revision{}",
-                        p.state,
-                        p.short_id,
-                        p.author,
-                        p.revisions,
-                        if p.revisions == 1 { "" } else { "s" }
-                    ),
-                );
-                ui.add_space(th.spacing.sm);
-                dim_label(
-                    ui,
-                    th,
-                    &format!(
-                        "base {} → head {}",
-                        short_oid_display(&p.base),
-                        short_oid_display(&p.head)
-                    ),
-                );
-                ui.add_space(th.spacing.md);
-                let desc_h = (avail_h * 0.22).clamp(72.0, 160.0);
-                egui::ScrollArea::vertical()
-                    .id_salt("patch_detail")
-                    .max_height(desc_h)
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-                        if p.description.is_empty() {
-                            dim_label(ui, th, "(no description)");
-                        } else if looks_like_md(&p.description) {
-                            markdown::render(ui, th, &p.description);
-                        } else {
-                            linkify::body(ui, th, &p.description);
-                        }
-                    });
-            });
+    // Description, changed files, and diff expand to natural height and ride
+    // the tab page ScrollArea — no nested max-height scroll boxes.
+    card(ui, th, |ui| {
+        title_2(ui, th, &p.title);
+        ui.add_space(th.spacing.sm);
+        dim_label(
+            ui,
+            th,
+            &format!(
+                "{} · {} · {} · {} revision{}",
+                p.state,
+                p.short_id,
+                p.author,
+                p.revisions,
+                if p.revisions == 1 { "" } else { "s" }
+            ),
+        );
+        ui.add_space(th.spacing.sm);
+        dim_label(
+            ui,
+            th,
+            &format!(
+                "base {} → head {}",
+                short_oid_display(&p.base),
+                short_oid_display(&p.head)
+            ),
+        );
+        ui.add_space(th.spacing.md);
+        ui.set_min_width(ui.available_width());
+        if p.description.is_empty() {
+            dim_label(ui, th, "(no description)");
+        } else if looks_like_md(&p.description) {
+            markdown::render(ui, th, &p.description);
+        } else {
+            linkify::body(ui, th, &p.description);
+        }
+    });
 
-            if let Some(err) = &state.patch_error {
-                ui.add_space(gap);
-                card(ui, th, |ui| {
-                    dim_label(ui, th, err);
-                });
-            }
-
-            ui.add_space(gap);
-
-            let paths_h = (avail_h * 0.22).clamp(88.0, 180.0);
-            card(ui, th, |ui| {
-                title_2(ui, th, "Changed files");
-                ui.add_space(th.spacing.sm);
-                if state.patch_paths.is_empty() {
-                    dim_label(ui, th, "(no file changes)");
-                } else {
-                    egui::ScrollArea::vertical()
-                        .id_salt("patch_paths")
-                        .max_height(paths_h)
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            for path in state.patch_paths.clone() {
-                                let selected = state.selected_patch_diff_path.as_deref()
-                                    == Some(path.as_str());
-                                let response = selectable_row(ui, th, &path, selected, false, true);
-                                if response.clicked() {
-                                    if let Some(profile) = profile {
-                                        state.select_patch_diff_path(profile, &path);
-                                    }
-                                }
-                            }
-                        });
-                }
-            });
-
-            ui.add_space(gap);
-
-            card(ui, th, |ui| {
-                let title = state
-                    .selected_patch_diff_path
-                    .as_deref()
-                    .unwrap_or("Diff");
-                title_2(ui, th, title);
-                ui.add_space(th.spacing.md);
-                if state.patch_diff_text.is_empty() {
-                    dim_label(ui, th, "Select a changed file to view the patch.");
-                } else {
-                    // No own scroll here: the diff grows to its natural
-                    // height and rides the page-level ScrollArea above, so
-                    // there's a single scrollbar instead of a nested one.
-                    ui.set_min_width(ui.available_width());
-                    diff_widget(ui, th, &state.patch_diff_text);
-                }
-            });
+    if let Some(err) = &state.patch_error {
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            dim_label(ui, th, err);
         });
+    }
+
+    ui.add_space(gap);
+
+    card(ui, th, |ui| {
+        title_2(ui, th, "Changed files");
+        ui.add_space(th.spacing.sm);
+        if state.patch_paths.is_empty() {
+            dim_label(ui, th, "(no file changes)");
+        } else {
+            ui.set_min_width(ui.available_width());
+            for path in state.patch_paths.clone() {
+                let selected =
+                    state.selected_patch_diff_path.as_deref() == Some(path.as_str());
+                let response = selectable_row(ui, th, &path, selected, false, true);
+                if response.clicked() {
+                    if let Some(profile) = profile {
+                        state.select_patch_diff_path(profile, &path);
+                    }
+                }
+            }
+        }
+    });
+
+    ui.add_space(gap);
+
+    card(ui, th, |ui| {
+        let title = state
+            .selected_patch_diff_path
+            .as_deref()
+            .unwrap_or("Diff");
+        title_2(ui, th, title);
+        ui.add_space(th.spacing.md);
+        if state.patch_diff_text.is_empty() {
+            dim_label(ui, th, "Select a changed file to view the patch.");
+        } else {
+            ui.set_min_width(ui.available_width());
+            diff_widget(ui, th, &state.patch_diff_text);
+        }
+    });
 }
 
 fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut RepoUi) {
@@ -1103,20 +1096,18 @@ fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut Re
         })
         .collect();
 
-    fill_scroll(ui, "tab_issues", false, |ui| {
-        for (id, state_label, title, meta) in rows {
-            let selected = state.selected_issue.as_deref() == Some(id.as_str());
-            let label = if show_state {
-                format!("[{state_label}] {title}")
-            } else {
-                title
-            };
-            let response = cob_list_row(ui, th, &id, &label, &meta, selected);
-            if response.clicked() {
-                state.selected_issue = Some(id);
-            }
+    for (id, state_label, title, meta) in rows {
+        let selected = state.selected_issue.as_deref() == Some(id.as_str());
+        let label = if show_state {
+            format!("[{state_label}] {title}")
+        } else {
+            title
+        };
+        let response = cob_list_row(ui, th, &id, &label, &meta, selected);
+        if response.clicked() {
+            state.selected_issue = Some(id);
         }
-    });
+    }
 }
 
 fn issue_detail(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &RepoUi) {
@@ -1137,68 +1128,71 @@ fn issue_detail(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &Repo
         &format!("{} · {} · {}", issue.state, issue.short_id, issue.author),
     );
     ui.add_space(th.spacing.md);
-    fill_scroll(ui, "issue_detail", true, |ui| {
-        if issue.description.is_empty() {
-            dim_label(ui, th, "(no description)");
-        } else if looks_like_md(&issue.description) {
-            markdown::render(ui, th, &issue.description);
-        } else {
-            linkify::body(ui, th, &issue.description);
-        }
-        if issue.replies > 0 {
-            ui.add_space(th.spacing.lg);
-            dim_label(
-                ui,
-                th,
-                &format!(
-                    "{} repl{} in thread",
-                    issue.replies,
-                    if issue.replies == 1 { "y" } else { "ies" }
-                ),
-            );
-        }
-    });
+    ui.set_min_width(ui.available_width());
+    if issue.description.is_empty() {
+        dim_label(ui, th, "(no description)");
+    } else if looks_like_md(&issue.description) {
+        markdown::render(ui, th, &issue.description);
+    } else {
+        linkify::body(ui, th, &issue.description);
+    }
+    if issue.replies > 0 {
+        ui.add_space(th.spacing.lg);
+        dim_label(
+            ui,
+            th,
+            &format!(
+                "{} repl{} in thread",
+                issue.replies,
+                if issue.replies == 1 { "y" } else { "ies" }
+            ),
+        );
+    }
 }
 
 fn jobs_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.34);
 
-    if side_by_side(avail_w, 220.0, gap) {
-        ui.allocate_ui_with_layout(
-            Vec2::new(avail_w, avail_h),
-            Layout::left_to_right(Align::Min),
-            |ui| {
-                ui.set_min_size(Vec2::new(avail_w, avail_h));
-                ui.set_max_size(Vec2::new(avail_w, avail_h));
-                pane(ui, list_w, avail_h, |ui| {
-                    card(ui, th, |ui| {
-                        job_list(ui, th, &model.jobs, state);
-                    });
-                });
+    page_scroll(ui, "jobs_page", |ui| {
+        if side_by_side(avail_w, 220.0, gap) {
+            let rest = (avail_w - list_w - gap).max(1.0);
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(list_w, 1.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.set_min_width(list_w);
+                        ui.set_max_width(list_w);
+                        card(ui, th, |ui| {
+                            job_list(ui, th, &model.jobs, state);
+                        });
+                    },
+                );
                 ui.add_space(gap);
-                let rest = (avail_w - list_w - gap).max(1.0);
-                pane(ui, rest, avail_h, |ui| {
-                    card(ui, th, |ui| {
-                        job_detail(ui, th, &model.jobs, state);
-                    });
-                });
-            },
-        );
-    } else {
-        let half = ((avail_h - gap) * 0.4).max(120.0);
-        ui.set_min_height(avail_h);
-        card(ui, th, |ui| {
-            ui.set_min_height(half);
-            job_list(ui, th, &model.jobs, state);
-        });
-        ui.add_space(gap);
-        card(ui, th, |ui| {
-            job_detail(ui, th, &model.jobs, state);
-        });
-    }
+                ui.allocate_ui_with_layout(
+                    Vec2::new(rest, 1.0),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.set_min_width(rest);
+                        ui.set_max_width(rest);
+                        card(ui, th, |ui| {
+                            job_detail(ui, th, &model.jobs, state);
+                        });
+                    },
+                );
+            });
+        } else {
+            card(ui, th, |ui| {
+                job_list(ui, th, &model.jobs, state);
+            });
+            ui.add_space(gap);
+            card(ui, th, |ui| {
+                job_detail(ui, th, &model.jobs, state);
+            });
+        }
+    });
 }
 
 fn job_list(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &mut RepoUi) {
@@ -1258,20 +1252,18 @@ fn job_list(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &mut RepoUi) 
         })
         .collect();
 
-    fill_scroll(ui, "tab_jobs", false, |ui| {
-        for (id, status_label, short_id, meta) in rows {
-            let selected = state.selected_job.as_deref() == Some(id.as_str());
-            let label = if show_status {
-                format!("[{status_label}] {short_id}")
-            } else {
-                short_id
-            };
-            let response = cob_list_row(ui, th, &id, &label, &meta, selected);
-            if response.clicked() {
-                state.selected_job = Some(id);
-            }
+    for (id, status_label, short_id, meta) in rows {
+        let selected = state.selected_job.as_deref() == Some(id.as_str());
+        let label = if show_status {
+            format!("[{status_label}] {short_id}")
+        } else {
+            short_id
+        };
+        let response = cob_list_row(ui, th, &id, &label, &meta, selected);
+        if response.clicked() {
+            state.selected_job = Some(id);
         }
-    });
+    }
 }
 
 fn status_tabs<S: Copy + PartialEq>(
@@ -1344,35 +1336,34 @@ fn job_detail(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &RepoUi) {
     dim_label(ui, th, &format!("commit {}", job.commit));
     ui.add_space(th.spacing.md);
 
-    fill_scroll(ui, "job_detail", true, |ui| {
-        if job.runs.is_empty() {
-            dim_label(ui, th, "(no runs yet)");
-            return;
+    ui.set_min_width(ui.available_width());
+    if job.runs.is_empty() {
+        dim_label(ui, th, "(no runs yet)");
+        return;
+    }
+    for run in &job.runs {
+        body(
+            ui,
+            th,
+            &format!(
+                "[{}] {} · {}",
+                run.status,
+                run.node,
+                short_uuid(&run.run_id)
+            ),
+        );
+        // Log is a typed URL on the job COB — always render it as a real link,
+        // on its own line so wrapping/hit-testing stay reliable in narrow panes.
+        dim_label(ui, th, "log");
+        let log = run.log.trim();
+        if linkify::is_url(log) {
+            linkify::link(ui, th, log);
+        } else {
+            linkify::dim(ui, th, log);
         }
-        for run in &job.runs {
-            body(
-                ui,
-                th,
-                &format!(
-                    "[{}] {} · {}",
-                    run.status,
-                    run.node,
-                    short_uuid(&run.run_id)
-                ),
-            );
-            // Log is a typed URL on the job COB — always render it as a real link,
-            // on its own line so wrapping/hit-testing stay reliable in narrow panes.
-            dim_label(ui, th, "log");
-            let log = run.log.trim();
-            if linkify::is_url(log) {
-                linkify::link(ui, th, log);
-            } else {
-                linkify::dim(ui, th, log);
-            }
-            dim_label(ui, th, &format!("ts {}", run.timestamp_secs));
-            ui.add_space(th.spacing.md);
-        }
-    });
+        dim_label(ui, th, &format!("ts {}", run.timestamp_secs));
+        ui.add_space(th.spacing.md);
+    }
 }
 
 fn short_uuid(id: &str) -> &str {
@@ -1471,9 +1462,6 @@ fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Opt
     }
 
     let gap = th.spacing.md;
-    // Already inside a height-capped pane — use residual height, not page clip.
-    let avail_h = ui.available_height().max(160.0);
-    let paths_h = (avail_h * 0.28).clamp(100.0, 220.0);
 
     card(ui, th, |ui| {
         title_2(ui, th, "Changed files");
@@ -1481,22 +1469,16 @@ fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Opt
         if state.commit_paths.is_empty() {
             dim_label(ui, th, "(no file changes)");
         } else {
-            egui::ScrollArea::vertical()
-                .id_salt("commit_paths")
-                .max_height(paths_h)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    for path in state.commit_paths.clone() {
-                        let selected = state.selected_diff_path.as_deref() == Some(path.as_str());
-                        let response = selectable_row(ui, th, &path, selected, false, true);
-                        if response.clicked() {
-                            if let Some(profile) = profile {
-                                state.select_diff_path(profile, &path);
-                            }
-                        }
+            ui.set_min_width(ui.available_width());
+            for path in state.commit_paths.clone() {
+                let selected = state.selected_diff_path.as_deref() == Some(path.as_str());
+                let response = selectable_row(ui, th, &path, selected, false, true);
+                if response.clicked() {
+                    if let Some(profile) = profile {
+                        state.select_diff_path(profile, &path);
                     }
-                });
+                }
+            }
         }
     });
 
@@ -1509,9 +1491,8 @@ fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Opt
         if state.diff_text.is_empty() {
             dim_label(ui, th, "Select a changed file to view the patch.");
         } else {
-            fill_scroll(ui, "diff_widget", true, |ui| {
-                diff_widget(ui, th, &state.diff_text);
-            });
+            ui.set_min_width(ui.available_width());
+            diff_widget(ui, th, &state.diff_text);
         }
     });
 }
