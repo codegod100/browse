@@ -4,6 +4,7 @@ mod app;
 mod components;
 mod gleam_bridge;
 mod gleam_guest;
+mod keyboard;
 mod linkify;
 mod markdown;
 mod rad;
@@ -140,8 +141,8 @@ fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
-    // Soft keyboard + system clipboard (Vidya); clone — eframe takes the other.
-    vidya::install_android_app(android_app.clone());
+    // Soft keyboard show/hide; clone — eframe takes the other.
+    crate::keyboard::install_android_app(android_app.clone());
     // Browse-local clipboard with EditText focus (API 29+).
     crate::android_clipboard::install(android_app.clone());
     // Point Radicle at app-private storage when RAD_HOME is unset.
