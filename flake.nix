@@ -13,11 +13,10 @@
     };
     # Path deps: android → ../../vidya, host → ../android.
     # Pin vidya so `nix build` works without a monorepo checkout.
-    # `keyboard-api` branch ships the soft keyboard + clipboard API natively
-    # (no browse-carried patch needed). The radicle garden gateway only mirrors
-    # the default branch at top level, so pin the delegate's namespaced ref.
+    # Soft keyboard + clipboard live in browse now (vidya main no longer
+    # carries the keyboard-api branch APIs), so pin default-branch tip.
     vidya = {
-      url = "git+https://nandi.radicle.garden/z2UqGTRH21s3pHnJgSuMwRaPPNNcW.git?ref=refs/namespaces/z6MkknknvqZkuDxZ5DtKqy3Ef11wnWFHByfamcoMdN754CG2/refs/heads/keyboard-api";
+      url = "github:codegod100/vidya";
       flake = false;
     };
   };

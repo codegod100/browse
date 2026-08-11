@@ -9,10 +9,11 @@ use eframe::egui::{
 };
 use radicle::Profile;
 use vidya::{
-    apply_dark, body, button, central_page, clipboard_text, dim_label, normalize_paste,
-    paint_icon_in, primary_button, reserve_system_chrome, set_clipboard_text, sync_soft_keyboard,
-    title, Icon, Theme,
+    apply_dark, body, button, central_page, dim_label, paint_icon_in, primary_button,
+    reserve_system_chrome, title, Icon, Theme,
 };
+
+use crate::keyboard::{clipboard_text, normalize_paste, set_clipboard_text, sync_soft_keyboard};
 
 use crate::components::{RepoList, RepoUi, Tab};
 use crate::gleam_bridge::{self, PaintResult, Slots, MSG_BACK, MSG_FAILED, MSG_LOADED, MSG_OPEN};
@@ -720,7 +721,7 @@ impl eframe::App for BrowseApp {
                             if let Some(at) = copy_rid_at {
                                 let rid = self.rid_input.trim();
                                 if !rid.is_empty() {
-                                    // egui-winit has no Android OS clipboard; also write via Vidya + browse.
+                                    // egui-winit has no Android OS clipboard; also write via desktop + browse helpers.
                                     ui.ctx().copy_text(rid.to_string());
                                     set_clipboard_text(rid);
                                     #[cfg(target_os = "android")]

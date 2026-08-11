@@ -53,6 +53,8 @@ eframe = { version = "0.31", default-features = false, features = [
     "wayland",
     "x11",
 ] }
+# Desktop system clipboard for paste/copy chips (Android uses android_clipboard).
+arboard = "3"
 
 [target.'cfg(target_os = "android")'.dependencies]
 eframe = { version = "0.31", default-features = false, features = [
