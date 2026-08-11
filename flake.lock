@@ -46,18 +46,17 @@
     "vidya": {
       "flake": false,
       "locked": {
-        "lastModified": 1786348555,
-        "narHash": "sha256-w5mwrahSaq6ST2TKtxEqivBku/nOscP4Ads/YNw3jMY=",
-        "ref": "refs/namespaces/z6MkknknvqZkuDxZ5DtKqy3Ef11wnWFHByfamcoMdN754CG2/refs/heads/keyboard-api",
-        "rev": "789f4a61184088db8e4134c753db2b7435bcb9fb",
-        "revCount": 27,
-        "type": "git",
-        "url": "https://nandi.radicle.garden/z2UqGTRH21s3pHnJgSuMwRaPPNNcW.git"
+        "lastModified": 1785891905,
+        "narHash": "sha256-8wiw1ebajIdy2+9dkI12bCoYyPDuI3ZWeZ13ki6TuU0=",
+        "owner": "codegod100",
+        "repo": "vidya",
+        "rev": "5e9f26c4a307ecabc69acd2c82f10e8cee68ed05",
+        "type": "github"
       },
       "original": {
-        "ref": "refs/namespaces/z6MkknknvqZkuDxZ5DtKqy3Ef11wnWFHByfamcoMdN754CG2/refs/heads/keyboard-api",
-        "type": "git",
-        "url": "https://nandi.radicle.garden/z2UqGTRH21s3pHnJgSuMwRaPPNNcW.git"
+        "owner": "codegod100",
+        "repo": "vidya",
+        "type": "github"
       }
     }
   },
