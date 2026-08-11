@@ -5,8 +5,13 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use std::ops::ControlFlow;
+
 use git2::{DiffFormat, DiffOptions, ObjectType};
+use radicle::cob::issue::cache::Issues as IssueCacheApi;
 use radicle::cob::issue::Issues as IssueStore;
+use radicle::cob::object::Storage as CobObjectStorage;
+use radicle::cob::patch::cache::Patches as PatchCacheApi;
 use radicle::cob::patch::Patches as PatchStore;
 use radicle::cob::store::access::ReadOnly;
 use radicle::crypto::ssh::Passphrase;
@@ -270,19 +275,73 @@ pub fn open_repo_core(profile: &Profile, rid_str: &str) -> Result<RepoView, RadE
     })
 }
 
-/// Live patch / issue / job COB rows (slower; load after core for first paint).
+/// How to load patch / issue rows from local storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CobLoadMode {
+    /// Prefer the SQLite COB cache when its row count matches live COB refs.
+    /// Falls back to live git (and warms the cache) when missing or stale.
+    Fast,
+    /// Always re-read from live git COB stores and refresh the SQLite cache.
+    /// Used for explicit Open / tab re-press reloads.
+    Fresh,
+}
+
+/// Which COB lists to (re)load. Tab re-press only refreshes the active kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CobKind {
+    All,
+    Patches,
+    Issues,
+    Jobs,
+}
+
+/// Partial COB snapshot — `None` means "leave the existing list untouched".
+#[derive(Debug, Clone, Default)]
+pub struct CobsSnapshot {
+    pub patches: Option<Vec<PatchRow>>,
+    pub issues: Option<Vec<IssueRow>>,
+    pub jobs: Option<Vec<JobRow>>,
+}
+
+/// Patch / issue / job COB rows (after core for first paint, or alone on reload).
 pub fn open_repo_cobs(
     profile: &Profile,
     rid_str: &str,
 ) -> Result<(Vec<PatchRow>, Vec<IssueRow>, Vec<JobRow>), RadError> {
-    let (_, repo) = open_storage(profile, rid_str)?;
-    // Prefer live git COB stores so Open / tab re-press reloads pick up newly
-    // synced patches & issues even when the SQLite COB cache is stale.
+    let snap = load_cobs(profile, rid_str, CobLoadMode::Fast, CobKind::All)?;
     Ok((
-        list_patches(&repo).unwrap_or_default(),
-        list_issues(&repo).unwrap_or_default(),
-        list_jobs(&repo).unwrap_or_default(),
+        snap.patches.unwrap_or_default(),
+        snap.issues.unwrap_or_default(),
+        snap.jobs.unwrap_or_default(),
     ))
+}
+
+/// Load COB lists with an explicit freshness mode and optional kind filter.
+pub fn load_cobs(
+    profile: &Profile,
+    rid_str: &str,
+    mode: CobLoadMode,
+    kind: CobKind,
+) -> Result<CobsSnapshot, RadError> {
+    let (_, repo) = open_storage(profile, rid_str)?;
+    let mut snap = CobsSnapshot::default();
+    match kind {
+        CobKind::All => {
+            snap.patches = Some(list_patches(profile, &repo, mode).unwrap_or_default());
+            snap.issues = Some(list_issues(profile, &repo, mode).unwrap_or_default());
+            snap.jobs = Some(list_jobs(&repo).unwrap_or_default());
+        }
+        CobKind::Patches => {
+            snap.patches = Some(list_patches(profile, &repo, mode).unwrap_or_default());
+        }
+        CobKind::Issues => {
+            snap.issues = Some(list_issues(profile, &repo, mode).unwrap_or_default());
+        }
+        CobKind::Jobs => {
+            snap.jobs = Some(list_jobs(&repo).unwrap_or_default());
+        }
+    }
+    Ok(snap)
 }
 
 pub fn open_repo(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError> {
@@ -637,7 +696,55 @@ fn list_commits(
     Ok(commits)
 }
 
-fn list_patches(repo: &Repository) -> Result<Vec<PatchRow>, RadError> {
+fn cob_ref_count(repo: &Repository, typename: &radicle::cob::TypeName) -> usize {
+    repo.types(typename)
+        .map(|m| m.len())
+        .unwrap_or(0)
+}
+
+fn list_patches(
+    profile: &Profile,
+    repo: &Repository,
+    mode: CobLoadMode,
+) -> Result<Vec<PatchRow>, RadError> {
+    let live_n = cob_ref_count(repo, &radicle::cob::patch::TYPENAME);
+    if mode == CobLoadMode::Fast {
+        if let Ok(cache) = profile.patches(repo) {
+            let cache_n = cache.counts().map(|c| c.total()).unwrap_or(usize::MAX);
+            if cache_n == live_n {
+                // Cache row count matches live COB refs — skip evaluating git history.
+                return collect_patch_rows_cached(&cache);
+            }
+        }
+    }
+    // Fresh reload or stale/missing cache: write-through once, then list from SQLite.
+    if warm_patches_cache(profile, repo).is_ok() {
+        if let Ok(cache) = profile.patches(repo) {
+            return collect_patch_rows_cached(&cache);
+        }
+    }
+    list_patches_live(repo)
+}
+
+fn collect_patch_rows_cached(
+    patches: &radicle::cob::patch::Cache<'_, Repository, ReadOnly, radicle::cob::cache::StoreReader>,
+) -> Result<Vec<PatchRow>, RadError> {
+    let mut rows = Vec::new();
+    for item in patches
+        .list()
+        .map_err(|e| RadError::Other(e.to_string()))?
+    {
+        if rows.len() >= MAX_PATCHES {
+            break;
+        }
+        let (id, patch) = item.map_err(|e| RadError::Other(e.to_string()))?;
+        rows.push(patch_row(id.to_string(), &patch));
+    }
+    sort_patch_rows(&mut rows);
+    Ok(rows)
+}
+
+fn list_patches_live(repo: &Repository) -> Result<Vec<PatchRow>, RadError> {
     let patches = PatchStore::open(repo, ReadOnly).map_err(|e| RadError::Other(e.to_string()))?;
     let mut rows = Vec::new();
     for item in patches
@@ -648,27 +755,86 @@ fn list_patches(repo: &Repository) -> Result<Vec<PatchRow>, RadError> {
             break;
         }
         let (id, patch) = item.map_err(|e| RadError::Other(e.to_string()))?;
-        let id_str = id.to_string();
-        rows.push(PatchRow {
-            short_id: short_oid(&id_str),
-            id: id_str,
-            title: patch.title().to_string(),
-            state: patch.state().to_string(),
-            author: short_did(&patch.author().to_string()),
-            description: truncate_desc(patch.description()),
-            head: patch.head().to_string(),
-            base: patch.base().to_string(),
-            revisions: patch.revisions().count(),
-            updated_ms: patch.updated_at().as_millis() as u64,
-        });
+        rows.push(patch_row(id.to_string(), &patch));
     }
-    rows.sort_by(|a, b| {
-        open_first(&a.state, &b.state).then_with(|| b.updated_ms.cmp(&a.updated_ms))
-    });
+    sort_patch_rows(&mut rows);
     Ok(rows)
 }
 
-fn list_issues(repo: &Repository) -> Result<Vec<IssueRow>, RadError> {
+fn warm_patches_cache(profile: &Profile, repo: &Repository) -> Result<(), RadError> {
+    let db = profile
+        .cobs_db_mut()
+        .map_err(|e| RadError::Other(e.to_string()))?;
+    let store = PatchStore::open(repo, ReadOnly).map_err(|e| RadError::Other(e.to_string()))?;
+    let mut cache = radicle::cob::patch::Cache::open(store, db);
+    cache
+        .write_all(|_, _| ControlFlow::Continue(()))
+        .map_err(|e| RadError::Other(e.to_string()))?;
+    Ok(())
+}
+
+fn patch_row(id_str: String, patch: &radicle::cob::patch::Patch) -> PatchRow {
+    PatchRow {
+        short_id: short_oid(&id_str),
+        id: id_str,
+        title: patch.title().to_string(),
+        state: patch.state().to_string(),
+        author: short_did(&patch.author().to_string()),
+        description: truncate_desc(patch.description()),
+        head: patch.head().to_string(),
+        base: patch.base().to_string(),
+        revisions: patch.revisions().count(),
+        updated_ms: patch.updated_at().as_millis() as u64,
+    }
+}
+
+fn sort_patch_rows(rows: &mut [PatchRow]) {
+    rows.sort_by(|a, b| {
+        open_first(&a.state, &b.state).then_with(|| b.updated_ms.cmp(&a.updated_ms))
+    });
+}
+
+fn list_issues(
+    profile: &Profile,
+    repo: &Repository,
+    mode: CobLoadMode,
+) -> Result<Vec<IssueRow>, RadError> {
+    let live_n = cob_ref_count(repo, &radicle::cob::issue::TYPENAME);
+    if mode == CobLoadMode::Fast {
+        if let Ok(cache) = profile.issues(repo) {
+            let cache_n = cache.counts().map(|c| c.total()).unwrap_or(usize::MAX);
+            if cache_n == live_n {
+                return collect_issue_rows_cached(&cache);
+            }
+        }
+    }
+    if warm_issues_cache(profile, repo).is_ok() {
+        if let Ok(cache) = profile.issues(repo) {
+            return collect_issue_rows_cached(&cache);
+        }
+    }
+    list_issues_live(repo)
+}
+
+fn collect_issue_rows_cached(
+    issues: &radicle::cob::issue::Cache<'_, Repository, ReadOnly, radicle::cob::cache::StoreReader>,
+) -> Result<Vec<IssueRow>, RadError> {
+    let mut rows = Vec::new();
+    for item in issues
+        .list()
+        .map_err(|e| RadError::Other(e.to_string()))?
+    {
+        if rows.len() >= MAX_ISSUES {
+            break;
+        }
+        let (id, issue) = item.map_err(|e| RadError::Other(e.to_string()))?;
+        rows.push(issue_row(id.to_string(), &issue));
+    }
+    sort_issue_rows(&mut rows);
+    Ok(rows)
+}
+
+fn list_issues_live(repo: &Repository) -> Result<Vec<IssueRow>, RadError> {
     let issues = IssueStore::open(repo, ReadOnly).map_err(|e| RadError::Other(e.to_string()))?;
     let mut rows = Vec::new();
     for item in issues
@@ -679,23 +845,42 @@ fn list_issues(repo: &Repository) -> Result<Vec<IssueRow>, RadError> {
             break;
         }
         let (id, issue) = item.map_err(|e| RadError::Other(e.to_string()))?;
-        let id_str = id.to_string();
-        let replies = issue.replies().count();
-        rows.push(IssueRow {
-            short_id: short_oid(&id_str),
-            id: id_str,
-            title: issue.title().to_string(),
-            state: issue.state().to_string(),
-            author: short_did(&issue.author().to_string()),
-            description: truncate_desc(issue.description()),
-            replies,
-            updated_ms: issue.timestamp().as_millis() as u64,
-        });
+        rows.push(issue_row(id.to_string(), &issue));
     }
+    sort_issue_rows(&mut rows);
+    Ok(rows)
+}
+
+fn warm_issues_cache(profile: &Profile, repo: &Repository) -> Result<(), RadError> {
+    let db = profile
+        .cobs_db_mut()
+        .map_err(|e| RadError::Other(e.to_string()))?;
+    let store = IssueStore::open(repo, ReadOnly).map_err(|e| RadError::Other(e.to_string()))?;
+    let mut cache = radicle::cob::issue::Cache::open(store, db);
+    cache
+        .write_all(|_, _| ControlFlow::Continue(()))
+        .map_err(|e| RadError::Other(e.to_string()))?;
+    Ok(())
+}
+
+fn issue_row(id_str: String, issue: &radicle::cob::issue::Issue) -> IssueRow {
+    let replies = issue.replies().count();
+    IssueRow {
+        short_id: short_oid(&id_str),
+        id: id_str,
+        title: issue.title().to_string(),
+        state: issue.state().to_string(),
+        author: short_did(&issue.author().to_string()),
+        description: truncate_desc(issue.description()),
+        replies,
+        updated_ms: issue.timestamp().as_millis() as u64,
+    }
+}
+
+fn sort_issue_rows(rows: &mut [IssueRow]) {
     rows.sort_by(|a, b| {
         open_first(&a.state, &b.state).then_with(|| b.updated_ms.cmp(&a.updated_ms))
     });
-    Ok(rows)
 }
 
 fn list_jobs(repo: &Repository) -> Result<Vec<JobRow>, RadError> {
