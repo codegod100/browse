@@ -36,7 +36,7 @@ impl RepoList {
             } else {
                 for repo in &recent_filtered {
                     let summary = RepoSummary::from(*repo);
-                    let response = repo_row(ui, th, &summary);
+                    let response = repo_row(ui, th, "recent", &summary);
                     if response.clicked() {
                         open = Some(repo.rid.clone());
                     }
@@ -89,7 +89,7 @@ impl RepoList {
         // Expand to natural height; whole-page scroll owns overflow.
         ui.set_min_width(ui.available_width());
         for repo in filtered {
-            let response = repo_row(ui, th, repo);
+            let response = repo_row(ui, th, "local", repo);
             if response.clicked() {
                 open = Some(repo.rid.clone());
             }
@@ -98,8 +98,9 @@ impl RepoList {
     }
 }
 
-fn repo_row(ui: &mut egui::Ui, th: &Theme, repo: &RepoSummary) -> egui::Response {
-    let id = ui.id().with(&repo.rid);
+fn repo_row(ui: &mut egui::Ui, th: &Theme, section: &str, repo: &RepoSummary) -> egui::Response {
+    // Namespace by section so the same RID in recent + local does not collide.
+    let id = ui.id().with(section).with(&repo.rid);
     let top = ui.cursor().top();
 
     let name = RichText::new(&repo.name)
