@@ -24,9 +24,24 @@ use crate::view_api::ui_label;
 
 const TOAST_SECS: u64 = 2;
 
-/// Background `open_repo` result (worker thread → UI thread).
-struct LoadOutcome {
-    result: Result<RepoView, String>,
+/// Background open / inventory results (worker thread → UI thread).
+enum LoadMsg {
+    /// Identity + files + commits — enough to leave the enter page.
+    Core(Result<RepoView, String>),
+    /// Patches / issues / jobs for a RID already shown from [`LoadMsg::Core`].
+    Cobs {
+        rid: String,
+        result: Result<
+            (
+                Vec<crate::view_api::PatchRow>,
+                Vec<crate::view_api::IssueRow>,
+                Vec<crate::view_api::JobRow>,
+            ),
+            String,
+        >,
+    },
+    /// Local storage inventory for the enter (node) page.
+    Inventory(Result<Vec<RepoSummary>, String>),
 }
 
 pub fn run_desktop(initial_rid: Option<String>) -> eframe::Result {
@@ -76,8 +91,16 @@ struct BrowseApp {
     tab_prefs: TabPrefsStore,
     err: Option<String>,
     auto_open: bool,
-    /// In-flight `rad::open_repo` (Open / tab reload). Keeps the UI thread free.
-    load_rx: Option<Receiver<LoadOutcome>>,
+    /// In-flight background work (open / COBs / inventory). Keeps the UI thread free.
+    load_rx: Option<Receiver<LoadMsg>>,
+    /// True while waiting for [`LoadMsg::Core`] (or a failed open).
+    opening: bool,
+    /// True while patches/issues/jobs are still loading after core.
+    cobs_loading: bool,
+    /// True while the enter-page local inventory is loading.
+    inventory_loading: bool,
+    /// True when the in-flight open is a reload of the repo already on screen.
+    reload_in_flight: bool,
     /// Waiting for Java UI-thread clipboard read (Android NativeActivity).
     paste_pending: bool,
     /// When [`Self::paste_pending`] was set — times out hung UI-thread reads.
@@ -96,10 +119,9 @@ impl BrowseApp {
             Err(e) => (None, Some(e.to_string())),
         };
 
-        let local_repos = profile
-            .as_ref()
-            .and_then(|p| rad::list_local_repos(p).ok())
-            .unwrap_or_default();
+        // Inventory is loaded off-thread so the enter (node) page paints immediately
+        // with recently viewed repos; local storage fills in when ready.
+        let local_repos = Vec::new();
 
         let (model, model_err) = match gleam_guest::init() {
             Ok(n) => (Some(n), None),
@@ -114,6 +136,7 @@ impl BrowseApp {
         };
         let recent_repos = recent::load();
         let tab_prefs = tab_prefs::load();
+        let inventory_loading = profile.is_some();
 
         Self {
             theme,
@@ -131,14 +154,22 @@ impl BrowseApp {
             err,
             auto_open,
             load_rx: None,
+            opening: false,
+            cobs_loading: false,
+            inventory_loading,
+            reload_in_flight: false,
             paste_pending: false,
             paste_started: None,
             toast: None,
         }
     }
 
-    fn is_loading(&self) -> bool {
-        self.load_rx.is_some()
+    fn is_opening(&self) -> bool {
+        self.opening
+    }
+
+    fn is_busy(&self) -> bool {
+        self.opening || self.cobs_loading || self.inventory_loading
     }
 
     #[allow(dead_code)] // bottom-center toasts for non-chip messages
@@ -150,23 +181,24 @@ impl BrowseApp {
         self.toast = Some((msg.into(), Instant::now(), Some(at)));
     }
 
-    fn refresh_local_repos(&mut self) {
-        if let Some(profile) = &self.profile {
-            match rad::list_local_repos(profile) {
-                Ok(repos) => self.local_repos = repos,
-                Err(e) => self.err = Some(e.to_string()),
-            }
+    fn refresh_local_repos(&mut self, ctx: &egui::Context) {
+        if self.profile.is_none() {
+            self.inventory_loading = false;
+            return;
         }
+        // Mark wanted even if a repo open owns the channel; update() retries later.
+        self.inventory_loading = true;
+        self.start_inventory_load(ctx);
     }
 
-    fn create_profile(&mut self) {
+    fn create_profile(&mut self, ctx: &egui::Context) {
         match rad::create_profile(&self.alias_input, Some(self.passphrase_input.as_str())) {
             Ok(profile) => {
                 let did = profile.did().to_string();
                 self.profile = Some(profile);
                 self.passphrase_input.clear();
                 self.err = None;
-                self.refresh_local_repos();
+                self.refresh_local_repos(ctx);
                 self.show_toast(format!("Profile created · {did}"));
             }
             Err(e) => self.err = Some(e.to_string()),
@@ -210,55 +242,169 @@ impl BrowseApp {
         self.start_load(ctx, rid);
     }
 
-    /// Spawn `Profile::load` + `open_repo` off the UI thread.
-    fn start_load(&mut self, ctx: &egui::Context, rid: String) {
+    /// Load local storage inventory off the UI thread (enter / node page).
+    fn start_inventory_load(&mut self, ctx: &egui::Context) {
+        if self.opening || self.cobs_loading {
+            // Repo open owns the channel; inventory retries when it finishes.
+            return;
+        }
+        if self.profile.is_none() {
+            self.inventory_loading = false;
+            return;
+        }
         if self.load_rx.is_some() {
             return;
         }
         let (tx, rx) = mpsc::channel();
         self.load_rx = Some(rx);
-        self.err = None;
+        self.inventory_loading = true;
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let result = (|| {
                 let profile = rad::load_profile().map_err(|e| e.to_string())?;
-                rad::open_repo(&profile, &rid).map_err(|e| e.to_string())
+                rad::list_local_repos(&profile).map_err(|e| e.to_string())
             })();
-            let _ = tx.send(LoadOutcome { result });
+            let _ = tx.send(LoadMsg::Inventory(result));
             ctx.request_repaint();
         });
     }
 
-    /// Apply a finished background load on the UI thread.
-    fn poll_load(&mut self) {
-        let outcome = {
-            let Some(rx) = self.load_rx.as_ref() else {
-                return;
+    /// Spawn progressive `open_repo_core` then `open_repo_cobs` off the UI thread.
+    fn start_load(&mut self, ctx: &egui::Context, rid: String) {
+        if self.opening || self.cobs_loading {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.load_rx = Some(rx);
+        self.opening = true;
+        self.cobs_loading = false;
+        self.inventory_loading = false;
+        self.reload_in_flight =
+            self.model == Some(1) && !self.repo_ui.rid.is_empty() && self.repo_ui.rid == rid;
+        self.err = None;
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let profile = match rad::load_profile() {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = tx.send(LoadMsg::Core(Err(e.to_string())));
+                    ctx.request_repaint();
+                    return;
+                }
             };
-            match rx.try_recv() {
-                Ok(outcome) => outcome,
-                Err(_) => return,
+            let core = rad::open_repo_core(&profile, &rid).map_err(|e| e.to_string());
+            let core_ok = core.is_ok();
+            let _ = tx.send(LoadMsg::Core(core));
+            ctx.request_repaint();
+            if !core_ok {
+                return;
             }
-        };
-        self.load_rx = None;
-        match outcome.result {
-            Ok(view) => self.apply_open_result(view),
-            Err(msg) => {
-                let already_viewing = self.model == Some(1) && !self.repo_ui.rid.is_empty();
-                if already_viewing {
-                    // Keep the current snapshot; surface the error without tearing down.
-                    self.err = Some(msg);
-                } else {
-                    self.slots = Slots::from_error(&msg);
-                    self.err = Some(msg.clone());
-                    if let Some(m) = self.model {
-                        match gleam_guest::update(m, MSG_FAILED) {
-                            Ok(n) => self.model = Some(n),
-                            Err(e) => self.err = Some(e),
+            let cobs = rad::open_repo_cobs(&profile, &rid).map_err(|e| e.to_string());
+            let _ = tx.send(LoadMsg::Cobs {
+                rid,
+                result: cobs,
+            });
+            ctx.request_repaint();
+        });
+    }
+
+    /// Apply finished background messages on the UI thread (may be several per open).
+    fn poll_load(&mut self) {
+        loop {
+            let msg = {
+                let Some(rx) = self.load_rx.as_ref() else {
+                    return;
+                };
+                match rx.try_recv() {
+                    Ok(msg) => msg,
+                    Err(mpsc::TryRecvError::Empty) => return,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.load_rx = None;
+                        self.opening = false;
+                        self.cobs_loading = false;
+                        self.inventory_loading = false;
+                        return;
+                    }
+                }
+            };
+            match msg {
+                LoadMsg::Core(result) => {
+                    self.opening = false;
+                    match result {
+                        Ok(view) => {
+                            self.cobs_loading = true;
+                            self.apply_open_result(view);
+                        }
+                        Err(msg) => {
+                            self.cobs_loading = false;
+                            self.reload_in_flight = false;
+                            self.load_rx = None;
+                            let already_viewing =
+                                self.model == Some(1) && !self.repo_ui.rid.is_empty();
+                            if already_viewing {
+                                self.err = Some(msg);
+                            } else {
+                                self.slots = Slots::from_error(&msg);
+                                self.err = Some(msg.clone());
+                                if let Some(m) = self.model {
+                                    match gleam_guest::update(m, MSG_FAILED) {
+                                        Ok(n) => self.model = Some(n),
+                                        Err(e) => self.err = Some(e),
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+                LoadMsg::Cobs { rid, result } => {
+                    self.cobs_loading = false;
+                    self.load_rx = None;
+                    match result {
+                        Ok((patches, issues, jobs)) => {
+                            self.apply_cobs(&rid, patches, issues, jobs);
+                        }
+                        Err(msg) => {
+                            self.reload_in_flight = false;
+                            // Core view stays; surface COB failure without tearing down.
+                            self.err = Some(msg);
+                        }
+                    }
+                }
+                LoadMsg::Inventory(result) => {
+                    self.inventory_loading = false;
+                    if !self.opening && !self.cobs_loading {
+                        self.load_rx = None;
+                    }
+                    match result {
+                        Ok(repos) => self.local_repos = repos,
+                        Err(e) => self.err = Some(e),
+                    }
+                }
             }
+        }
+    }
+
+    fn apply_cobs(
+        &mut self,
+        rid: &str,
+        patches: Vec<crate::view_api::PatchRow>,
+        issues: Vec<crate::view_api::IssueRow>,
+        jobs: Vec<crate::view_api::JobRow>,
+    ) {
+        if self.repo_ui.rid != rid {
+            self.reload_in_flight = false;
+            return;
+        }
+        let toast_reload = self.reload_in_flight;
+        self.reload_in_flight = false;
+        self.slots.patches = patches;
+        self.slots.issues = issues;
+        self.slots.jobs = jobs;
+        self.repo_ui
+            .prune_cob_selections(&self.slots.patches, &self.slots.issues, &self.slots.jobs);
+        self.err = None;
+        if toast_reload {
+            self.show_toast("Reloaded");
         }
     }
 
@@ -272,8 +418,9 @@ impl BrowseApp {
         recent::save(&self.recent_repos);
         let already_viewing = self.model == Some(1) && self.repo_ui.rid == view.rid;
         if already_viewing {
-            self.apply_view_reload(&view);
-            self.show_toast("Reloaded");
+            // Keep existing COB lists until `LoadMsg::Cobs` arrives so the tabs
+            // do not flash empty during progressive reload.
+            self.apply_core_reload(&view);
         } else if let Some(profile) = &self.profile {
             self.repo_ui
                 .reset_for(&view.rid, &view.head_oid, &view.files);
@@ -291,40 +438,24 @@ impl BrowseApp {
         }
     }
 
-    /// Refresh snapshot in place (keep tab + selection when still valid).
-    fn apply_view_reload(&mut self, view: &RepoView) {
-        let keep = (
-            self.repo_ui.tab,
-            self.repo_ui.selected_patch.clone(),
-            self.repo_ui.selected_issue.clone(),
-            self.repo_ui.selected_job.clone(),
-            self.repo_ui.cwd.clone(),
-            self.repo_ui.selected_file.clone(),
-            self.repo_ui.selected_commit.clone(),
-            self.repo_ui.patch_status,
-            self.repo_ui.issue_status,
-            self.repo_ui.job_status,
-            self.repo_ui.patch_filter.clone(),
-            self.repo_ui.issue_filter.clone(),
-        );
-
+    /// Refresh files/commits/meta in place; leave patch/issue/job rows untouched.
+    fn apply_core_reload(&mut self, view: &RepoView) {
         self.repo_ui.head_oid = view.head_oid.clone();
-        self.repo_ui.tab = keep.0;
-        self.repo_ui.selected_patch = keep.1;
-        self.repo_ui.selected_issue = keep.2;
-        self.repo_ui.selected_job = keep.3;
-        self.repo_ui.cwd = keep.4;
-        self.repo_ui.selected_file = keep.5;
-        self.repo_ui.selected_commit = keep.6;
-        self.repo_ui.patch_status = keep.7;
-        self.repo_ui.issue_status = keep.8;
-        self.repo_ui.job_status = keep.9;
-        self.repo_ui.patch_filter = keep.10;
-        self.repo_ui.issue_filter = keep.11;
-        self.repo_ui
-            .prune_cob_selections(&view.patches, &view.issues, &view.jobs);
+        self.slots.strings = vec![
+            view.name.clone(),
+            if view.description.is_empty() {
+                "(no description)".into()
+            } else {
+                view.description.clone()
+            },
+            view.rid.clone(),
+            format!("head {}", view.head),
+            view.readme.clone(),
+            String::new(),
+        ];
+        self.slots.files = view.files.clone();
+        self.slots.commits = view.commits.clone();
         self.repo_ui.reload_requested = false;
-        self.slots = Slots::from_view(view);
         self.err = None;
     }
 
@@ -356,7 +487,7 @@ impl BrowseApp {
                             tab_prefs::save(&self.tab_prefs);
                             self.repo_ui.prefs_dirty = false;
                         }
-                        self.refresh_local_repos();
+                        self.refresh_local_repos(ctx);
                         self.rid_input.clear();
                         self.repo_filter.clear();
                     }
@@ -374,8 +505,13 @@ impl eframe::App for BrowseApp {
         apply_dark(ctx);
         let th = self.theme.clone();
 
+        // First frames: kick off local inventory without blocking paint.
+        if self.inventory_loading && self.load_rx.is_none() && !self.opening && !self.cobs_loading {
+            self.start_inventory_load(ctx);
+        }
+
         self.poll_load();
-        if self.is_loading() {
+        if self.is_busy() {
             // Keep the frame alive while the worker runs so toasts / UI stay live.
             ctx.request_repaint_after(Duration::from_millis(50));
         }
@@ -454,7 +590,7 @@ impl eframe::App for BrowseApp {
                                     dim_label(ui, &th, err);
                                 }
                                 if create {
-                                    self.create_profile();
+                                    self.create_profile(ui.ctx());
                                 }
                                 return;
                             }
@@ -472,15 +608,16 @@ impl eframe::App for BrowseApp {
                                 |ui| {
                                     ui.set_min_height(h);
                                     ui.set_max_height(h);
-                            let open_label = if self.is_loading() {
-                                "Loading…".to_string()
+                            let open_label = if self.is_opening() {
+                                "Opening…".to_string()
                             } else {
                                 ui_label(2)
                             };
                             if primary_button(ui, &th, &open_label)
                                 .on_hover_text("Open repo; press again to reload")
                                 .clicked()
-                                && !self.is_loading()
+                                && !self.is_opening()
+                                && !self.cobs_loading
                             {
                                 btn_open = true;
                             }
@@ -600,13 +737,20 @@ impl eframe::App for BrowseApp {
                                     self.show_toast_at("RID copied", at);
                                 }
                             }
-                            if (enter_open || btn_open) && !self.is_loading() {
+                            if (enter_open || btn_open) && !self.is_opening() && !self.cobs_loading
+                            {
                                 self.open_current(ui.ctx());
                                 return;
                             }
                             ui.add_space(th.spacing.sm);
-                            if self.is_loading() {
-                                dim_label(ui, &th, "Loading repo snapshot…");
+                            if self.is_opening() {
+                                dim_label(ui, &th, "Opening repo…");
+                                ui.add_space(th.spacing.sm);
+                            } else if self.cobs_loading {
+                                dim_label(ui, &th, "Loading patches…");
+                                ui.add_space(th.spacing.sm);
+                            } else if self.inventory_loading && self.model == Some(0) {
+                                dim_label(ui, &th, "Loading local repos…");
                                 ui.add_space(th.spacing.sm);
                             }
 
@@ -637,32 +781,34 @@ impl eframe::App for BrowseApp {
                                     self.err = Some(err);
                                 }
                                 if let Some(rid) = open_rid {
-                                    self.rid_input = rid;
-                                    self.open_current(ui.ctx());
-                                    return;
+                                    if !self.is_opening() && !self.cobs_loading {
+                                        self.rid_input = rid;
+                                        self.open_current(ui.ctx());
+                                        return;
+                                    }
                                 }
                                 if let Some(msg) = pending_msg {
-                                    if !self.is_loading() {
+                                    if !self.is_opening() {
                                         self.handle_msg(ui.ctx(), msg);
                                     }
                                     return;
                                 }
 
-                                let clicked = if self.is_loading() {
-                                    None
-                                } else {
-                                    RepoList::show(
-                                        ui,
-                                        &th,
-                                        &self.recent_repos,
-                                        &self.local_repos,
-                                        &mut self.repo_filter,
-                                    )
-                                };
+                                // Keep the node inventory painted while a repo opens so the
+                                // enter page does not blank out during the load.
+                                let clicked = RepoList::show(
+                                    ui,
+                                    &th,
+                                    &self.recent_repos,
+                                    &self.local_repos,
+                                    &mut self.repo_filter,
+                                );
                                 if let Some(rid) = clicked {
-                                    self.rid_input = rid;
-                                    self.open_current(ui.ctx());
-                                    return;
+                                    if !self.is_opening() && !self.cobs_loading {
+                                        self.rid_input = rid;
+                                        self.open_current(ui.ctx());
+                                        return;
+                                    }
                                 }
                                 if let Some(err) = &self.err {
                                     ui.add_space(th.spacing.sm);
@@ -688,9 +834,11 @@ impl eframe::App for BrowseApp {
                                 self.err = Some(err);
                             }
                             if let Some(rid) = open_rid {
-                                self.rid_input = rid;
-                                self.open_current(ui.ctx());
-                                return;
+                                if !self.is_opening() && !self.cobs_loading {
+                                    self.rid_input = rid;
+                                    self.open_current(ui.ctx());
+                                    return;
+                                }
                             }
                             if self.repo_ui.reload_requested {
                                 // Clear immediately and load off-thread so the click
@@ -699,7 +847,7 @@ impl eframe::App for BrowseApp {
                             }
                             self.persist_tab_prefs_if_dirty();
                             if let Some(msg) = pending_msg {
-                                if !self.is_loading() {
+                                if !self.is_opening() {
                                     self.handle_msg(ui.ctx(), msg);
                                 }
                             }

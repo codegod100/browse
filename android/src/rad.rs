@@ -154,7 +154,8 @@ fn open_storage(profile: &Profile, rid_str: &str) -> Result<(RepoId, Repository)
     Ok((rid, repo))
 }
 
-pub fn open_repo(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError> {
+/// Identity + files + commits only (fast path for first paint).
+pub fn open_repo_core(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError> {
     let (rid, repo) = open_storage(profile, rid_str)?;
 
     let DocAt { doc, .. } = repo
@@ -174,11 +175,6 @@ pub fn open_repo(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError>
 
     let (readme, files) = readme_and_files(&repo, head)?;
     let commits = list_commits(&repo, head)?;
-    // Prefer live git COB stores so Open / tab re-press reloads pick up newly
-    // synced patches & issues even when the SQLite COB cache is stale.
-    let patches = list_patches(&repo).unwrap_or_default();
-    let issues = list_issues(&repo).unwrap_or_default();
-    let jobs = list_jobs(&repo).unwrap_or_default();
 
     Ok(RepoView {
         rid: rid.to_string(),
@@ -189,10 +185,34 @@ pub fn open_repo(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError>
         readme,
         files,
         commits,
-        patches,
-        issues,
-        jobs,
+        patches: Vec::new(),
+        issues: Vec::new(),
+        jobs: Vec::new(),
     })
+}
+
+/// Live patch / issue / job COB rows (slower; load after core for first paint).
+pub fn open_repo_cobs(
+    profile: &Profile,
+    rid_str: &str,
+) -> Result<(Vec<PatchRow>, Vec<IssueRow>, Vec<JobRow>), RadError> {
+    let (_, repo) = open_storage(profile, rid_str)?;
+    // Prefer live git COB stores so Open / tab re-press reloads pick up newly
+    // synced patches & issues even when the SQLite COB cache is stale.
+    Ok((
+        list_patches(&repo).unwrap_or_default(),
+        list_issues(&repo).unwrap_or_default(),
+        list_jobs(&repo).unwrap_or_default(),
+    ))
+}
+
+pub fn open_repo(profile: &Profile, rid_str: &str) -> Result<RepoView, RadError> {
+    let mut view = open_repo_core(profile, rid_str)?;
+    let (patches, issues, jobs) = open_repo_cobs(profile, rid_str)?;
+    view.patches = patches;
+    view.issues = issues;
+    view.jobs = jobs;
+    Ok(view)
 }
 
 pub fn read_file(
