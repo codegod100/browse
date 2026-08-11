@@ -1,15 +1,17 @@
 ---
-description: Create a boxci Radicle patch whenever you would open a PR
+description: Create a boxci Radicle patch for every issue (and instead of GitHub PRs)
 alwaysApply: true
 ---
 
-# Review proposals → [boxci](https://boxci.boxd.sh) patch (not GitHub PR)
+# Every issue → [boxci](https://boxci.boxd.sh) Radicle patch
 
-Whenever you would open or update a **pull request** (GitHub PR / MR / `ManagePullRequest` / `gh pr create`), do this instead:
+For **every issue** you implement (Linear, GitHub, or equivalent), finish by opening a **Radicle patch via [boxci](https://boxci.boxd.sh)** — not a GitHub PR.
 
-1. Commit and push the GitHub branch as usual.
-2. Open or update a **Radicle patch via [boxci](https://boxci.boxd.sh)** using the **`boxci-github-patch`** skill (`POST https://boxci.boxd.sh/api/patches/from-github`).
-3. Poll until `patch_id=` appears; report that id (and Garden URL) — not a GitHub PR URL.
+1. Commit and push the GitHub branch (boxci needs the SHA).
+2. Call the **`boxci-github-patch`** skill (`POST https://boxci.boxd.sh/api/patches/from-github`) with this repo’s RID and the commit SHA.
+3. Poll until `patch_id=` appears; report that id, the boxci run URL, and a Garden/explorer link — **not** a GitHub PR URL.
+
+Same rule whenever you would open or update a pull request (`ManagePullRequest`, `gh pr create` / `gh pr edit`, etc.): create/update the boxci patch instead.
 
 Do **not** use `ManagePullRequest`, `gh pr create`, `git push rad`, the `rad-patch` skill, or Radicle MCP `create_patch` unless the user explicitly asks for a GitHub PR or a local `rad` push.
 
