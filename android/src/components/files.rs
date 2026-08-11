@@ -17,26 +17,22 @@ impl Files {
             return;
         }
 
+        // Expand to natural height; whole-page scroll owns overflow.
         let show = n.min(model.files.len());
-        egui::ScrollArea::vertical()
-            .id_salt("files_list")
-            .max_height(360.0)
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                for file in model.files.iter().take(show) {
-                    let name = file.name.clone();
-                    let kind = if file.is_tree { "dir" } else { "file" };
-                    lead_trail(
-                        ui,
-                        |ui| {
-                            body(ui, th, &name);
-                        },
-                        |ui| {
-                            dim_label(ui, th, kind);
-                        },
-                    );
-                    ui.add_space(th.spacing.xs);
-                }
-            });
+        ui.set_min_width(ui.available_width());
+        for file in model.files.iter().take(show) {
+            let name = file.name.clone();
+            let kind = if file.is_tree { "dir" } else { "file" };
+            lead_trail(
+                ui,
+                |ui| {
+                    body(ui, th, &name);
+                },
+                |ui| {
+                    dim_label(ui, th, kind);
+                },
+            );
+            ui.add_space(th.spacing.xs);
+        }
     }
 }
