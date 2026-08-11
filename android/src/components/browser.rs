@@ -550,33 +550,79 @@ fn commits_tab(
 ) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let list_w = list_pane_width(avail_w, 0.34);
+    let min_col = 200.0;
+    let selected = state.selected_commit.is_some();
+    // 3-col: commit list | changed files | diff
+    // 2-col (selected): changed files | diff — list collapses so files stay left
+    // 2-col (idle): commit list | placeholder
+    let two = side_by_side(avail_w, min_col, gap);
+    let three = selected && avail_w >= min_col * 3.0 + gap * 2.0;
 
-    // Expand to natural height; Vidya central_page owns the scrollbar.
-    if side_by_side(avail_w, 220.0, gap) {
+    let paths = state.commit_paths.clone();
+    let selected_path = state.selected_diff_path.clone();
+
+    if three {
+        let list_w = list_pane_width(avail_w, 0.28);
+        let files_w = list_pane_width(avail_w, 0.28);
+        let rest = (avail_w - list_w - files_w - gap * 2.0).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            pane(ui, list_w, |ui| {
+                card(ui, th, |ui| {
+                    commit_list(ui, th, &model.commits, state, profile);
+                });
+            });
+            ui.add_space(gap);
+            pane(ui, files_w, |ui| {
+                changed_files_card(ui, th, &paths, selected_path.as_deref(), |path| {
+                    if let Some(profile) = profile {
+                        state.select_diff_path(profile, path);
+                    }
+                });
+            });
+            ui.add_space(gap);
+            pane(ui, rest, |ui| {
+                commit_diff_pane(ui, th, state);
+            });
+        });
+    } else if two && selected {
+        // List collapses out of the column row so changed files stay left.
+        if button(ui, th, "← Commits").clicked() {
+            state.selected_commit = None;
+            state.selected_diff_path = None;
+            state.diff_text.clear();
+            state.commit_paths.clear();
+            state.commit_error = None;
+            return;
+        }
+        ui.add_space(th.spacing.sm);
+        let files_w = list_pane_width(avail_w, 0.32);
+        let rest = (avail_w - files_w - gap).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            pane(ui, files_w, |ui| {
+                changed_files_card(ui, th, &paths, selected_path.as_deref(), |path| {
+                    if let Some(profile) = profile {
+                        state.select_diff_path(profile, path);
+                    }
+                });
+            });
+            ui.add_space(gap);
+            pane(ui, rest, |ui| {
+                commit_diff_pane(ui, th, state);
+            });
+        });
+    } else if two {
+        let list_w = list_pane_width(avail_w, 0.34);
         let rest = (avail_w - list_w - gap).max(1.0);
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.allocate_ui_with_layout(
-                Vec2::new(list_w, 1.0),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    ui.set_min_width(list_w);
-                    ui.set_max_width(list_w);
-                    card(ui, th, |ui| {
-                        commit_list(ui, th, &model.commits, state, profile);
-                    });
-                },
-            );
+            pane(ui, list_w, |ui| {
+                card(ui, th, |ui| {
+                    commit_list(ui, th, &model.commits, state, profile);
+                });
+            });
             ui.add_space(gap);
-            ui.allocate_ui_with_layout(
-                Vec2::new(rest, 1.0),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    ui.set_min_width(rest);
-                    ui.set_max_width(rest);
-                    commit_detail(ui, th, state, profile);
-                },
-            );
+            pane(ui, rest, |ui| {
+                commit_detail(ui, th, state, profile);
+            });
         });
     } else {
         card(ui, th, |ui| {
@@ -585,6 +631,18 @@ fn commits_tab(
         ui.add_space(gap);
         commit_detail(ui, th, state, profile);
     }
+}
+
+fn pane(ui: &mut egui::Ui, width: f32, content: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, 1.0),
+        Layout::top_down(Align::Min),
+        |ui| {
+            ui.set_min_width(width);
+            ui.set_max_width(width);
+            content(ui);
+        },
+    );
 }
 
 fn file_list(
@@ -699,32 +757,78 @@ fn patches_tab(
 ) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let list_w = list_pane_width(avail_w, 0.34);
+    let min_col = 200.0;
+    let selected = state.selected_patch.is_some();
+    // Same responsive rules as commits: when collapsed to two columns with a
+    // selection, changed files occupy the left column (patch list collapses).
+    let two = side_by_side(avail_w, min_col, gap);
+    let three = selected && avail_w >= min_col * 3.0 + gap * 2.0;
 
-    if side_by_side(avail_w, 220.0, gap) {
+    let paths = state.patch_paths.clone();
+    let selected_path = state.selected_patch_diff_path.clone();
+
+    if three {
+        patch_meta(ui, th, &model.patches, state);
+        ui.add_space(gap);
+        let list_w = list_pane_width(avail_w, 0.28);
+        let files_w = list_pane_width(avail_w, 0.28);
+        let rest = (avail_w - list_w - files_w - gap * 2.0).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            pane(ui, list_w, |ui| {
+                card(ui, th, |ui| {
+                    patch_list(ui, th, &model.patches, state, profile);
+                });
+            });
+            ui.add_space(gap);
+            pane(ui, files_w, |ui| {
+                changed_files_card(ui, th, &paths, selected_path.as_deref(), |path| {
+                    if let Some(profile) = profile {
+                        state.select_patch_diff_path(profile, path);
+                    }
+                });
+            });
+            ui.add_space(gap);
+            pane(ui, rest, |ui| {
+                patch_diff_pane(ui, th, state);
+            });
+        });
+    } else if two && selected {
+        if button(ui, th, "← Patches").clicked() {
+            state.clear_patch_selection();
+            return;
+        }
+        ui.add_space(th.spacing.sm);
+        patch_meta(ui, th, &model.patches, state);
+        ui.add_space(gap);
+        // List collapses out of the column row so changed files stay left.
+        let files_w = list_pane_width(avail_w, 0.32);
+        let rest = (avail_w - files_w - gap).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            pane(ui, files_w, |ui| {
+                changed_files_card(ui, th, &paths, selected_path.as_deref(), |path| {
+                    if let Some(profile) = profile {
+                        state.select_patch_diff_path(profile, path);
+                    }
+                });
+            });
+            ui.add_space(gap);
+            pane(ui, rest, |ui| {
+                patch_diff_pane(ui, th, state);
+            });
+        });
+    } else if two {
+        let list_w = list_pane_width(avail_w, 0.34);
         let rest = (avail_w - list_w - gap).max(1.0);
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.allocate_ui_with_layout(
-                Vec2::new(list_w, 1.0),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    ui.set_min_width(list_w);
-                    ui.set_max_width(list_w);
-                    card(ui, th, |ui| {
-                        patch_list(ui, th, &model.patches, state, profile);
-                    });
-                },
-            );
+            pane(ui, list_w, |ui| {
+                card(ui, th, |ui| {
+                    patch_list(ui, th, &model.patches, state, profile);
+                });
+            });
             ui.add_space(gap);
-            ui.allocate_ui_with_layout(
-                Vec2::new(rest, 1.0),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    ui.set_min_width(rest);
-                    ui.set_max_width(rest);
-                    patch_detail(ui, th, &model.patches, state, profile);
-                },
-            );
+            pane(ui, rest, |ui| {
+                patch_detail(ui, th, &model.patches, state, profile);
+            });
         });
     } else {
         card(ui, th, |ui| {
@@ -867,23 +971,47 @@ fn patch_detail(
     state: &mut RepoUi,
     profile: Option<&Profile>,
 ) {
-    let Some(id) = state.selected_patch.clone() else {
+    if state.selected_patch.is_none() {
         card(ui, th, |ui| {
             dim_label(ui, th, "Select a patch to view its details.");
         });
         return;
+    }
+
+    let gap = th.spacing.md;
+    // Stacked / single-column: description, then changed files, then diff.
+    patch_meta(ui, th, patches, state);
+    ui.add_space(gap);
+
+    if let Some(err) = &state.patch_error {
+        card(ui, th, |ui| {
+            dim_label(ui, th, err);
+        });
+        ui.add_space(gap);
+    }
+
+    let paths = state.patch_paths.clone();
+    let selected = state.selected_patch_diff_path.clone();
+    let diff_text = state.patch_diff_text.clone();
+    changed_files_diff_panes(ui, th, &paths, selected.as_deref(), &diff_text, |path| {
+        if let Some(profile) = profile {
+            state.select_patch_diff_path(profile, path);
+        }
+    });
+}
+
+/// Patch title / meta / description card (full width).
+fn patch_meta(ui: &mut egui::Ui, th: &Theme, patches: &[PatchRow], state: &RepoUi) {
+    let Some(id) = state.selected_patch.as_deref() else {
+        return;
     };
-    let Some(p) = patches.iter().find(|p| p.id == id).cloned() else {
+    let Some(p) = patches.iter().find(|p| p.id == id) else {
         card(ui, th, |ui| {
             dim_label(ui, th, "Patch not found in snapshot.");
         });
         return;
     };
 
-    let gap = th.spacing.md;
-
-    // Description (full width), then changed files | diff side-by-side.
-    // All expand to natural height and ride the whole-page ScrollArea.
     card(ui, th, |ui| {
         title_2(ui, th, &p.title);
         ui.add_space(th.spacing.sm);
@@ -919,25 +1047,21 @@ fn patch_detail(
             linkify::body(ui, th, &p.description);
         }
     });
+}
 
+fn patch_diff_pane(ui: &mut egui::Ui, th: &Theme, state: &RepoUi) {
     if let Some(err) = &state.patch_error {
-        ui.add_space(gap);
         card(ui, th, |ui| {
             dim_label(ui, th, err);
         });
+        ui.add_space(th.spacing.md);
     }
-
-    ui.add_space(gap);
-
-    // Changed files in a left column; diff beside it when wide enough.
-    let paths = state.patch_paths.clone();
-    let selected = state.selected_patch_diff_path.clone();
-    let diff_text = state.patch_diff_text.clone();
-    changed_files_diff_panes(ui, th, &paths, selected.as_deref(), &diff_text, |path| {
-        if let Some(profile) = profile {
-            state.select_patch_diff_path(profile, path);
-        }
-    });
+    diff_card(
+        ui,
+        th,
+        state.selected_patch_diff_path.as_deref(),
+        &state.patch_diff_text,
+    );
 }
 
 fn issue_list(ui: &mut egui::Ui, th: &Theme, issues: &[IssueRow], state: &mut RepoUi) {
@@ -1372,17 +1496,17 @@ fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Opt
         return;
     }
 
+    // Stacked path: keep files | diff side-by-side when the detail pane is wide
+    // enough; otherwise files above diff.
+    let paths = state.commit_paths.clone();
+    let selected = state.selected_diff_path.clone();
+    let diff_text = state.diff_text.clone();
     if let Some(err) = &state.commit_error {
         card(ui, th, |ui| {
             dim_label(ui, th, err);
         });
         ui.add_space(th.spacing.md);
     }
-
-    // Changed files in a left column; diff beside it when wide enough.
-    let paths = state.commit_paths.clone();
-    let selected = state.selected_diff_path.clone();
-    let diff_text = state.diff_text.clone();
     changed_files_diff_panes(ui, th, &paths, selected.as_deref(), &diff_text, |path| {
         if let Some(profile) = profile {
             state.select_diff_path(profile, path);
@@ -1390,7 +1514,57 @@ fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Opt
     });
 }
 
+fn commit_diff_pane(ui: &mut egui::Ui, th: &Theme, state: &RepoUi) {
+    if let Some(err) = &state.commit_error {
+        card(ui, th, |ui| {
+            dim_label(ui, th, err);
+        });
+        ui.add_space(th.spacing.md);
+    }
+    diff_card(ui, th, state.selected_diff_path.as_deref(), &state.diff_text);
+}
+
+fn changed_files_card(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    paths: &[String],
+    selected_path: Option<&str>,
+    mut on_select: impl FnMut(&str),
+) {
+    card(ui, th, |ui| {
+        title_2(ui, th, "Changed files");
+        ui.add_space(th.spacing.sm);
+        if paths.is_empty() {
+            dim_label(ui, th, "(no file changes)");
+        } else {
+            ui.set_min_width(ui.available_width());
+            for path in paths {
+                let selected = selected_path == Some(path.as_str());
+                let response = selectable_row(ui, th, path, selected, false, true);
+                if response.clicked() {
+                    on_select(path);
+                }
+            }
+        }
+    });
+}
+
+fn diff_card(ui: &mut egui::Ui, th: &Theme, selected_path: Option<&str>, diff_text: &str) {
+    card(ui, th, |ui| {
+        let title = selected_path.unwrap_or("Diff");
+        title_2(ui, th, title);
+        ui.add_space(th.spacing.md);
+        if diff_text.is_empty() {
+            dim_label(ui, th, "Select a changed file to view the patch.");
+        } else {
+            ui.set_min_width(ui.available_width());
+            diff_widget(ui, th, diff_text);
+        }
+    });
+}
+
 /// Left: changed-file list. Right: selected file diff. Stacks when narrow.
+/// Used on the single-column / stacked detail path.
 fn changed_files_diff_panes(
     ui: &mut egui::Ui,
     th: &Theme,
@@ -1403,66 +1577,21 @@ fn changed_files_diff_panes(
     let avail_w = ui.available_width();
     let list_w = list_pane_width(avail_w, 0.32);
 
-    let files = |ui: &mut egui::Ui, on_select: &mut dyn FnMut(&str)| {
-        card(ui, th, |ui| {
-            title_2(ui, th, "Changed files");
-            ui.add_space(th.spacing.sm);
-            if paths.is_empty() {
-                dim_label(ui, th, "(no file changes)");
-            } else {
-                ui.set_min_width(ui.available_width());
-                for path in paths {
-                    let selected = selected_path == Some(path.as_str());
-                    let response = selectable_row(ui, th, path, selected, false, true);
-                    if response.clicked() {
-                        on_select(path);
-                    }
-                }
-            }
-        });
-    };
-
-    let diff = |ui: &mut egui::Ui| {
-        card(ui, th, |ui| {
-            let title = selected_path.unwrap_or("Diff");
-            title_2(ui, th, title);
-            ui.add_space(th.spacing.md);
-            if diff_text.is_empty() {
-                dim_label(ui, th, "Select a changed file to view the patch.");
-            } else {
-                ui.set_min_width(ui.available_width());
-                diff_widget(ui, th, diff_text);
-            }
-        });
-    };
-
     if side_by_side(avail_w, 200.0, gap) {
         let rest = (avail_w - list_w - gap).max(1.0);
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.allocate_ui_with_layout(
-                Vec2::new(list_w, 1.0),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    ui.set_min_width(list_w);
-                    ui.set_max_width(list_w);
-                    files(ui, &mut on_select);
-                },
-            );
+            pane(ui, list_w, |ui| {
+                changed_files_card(ui, th, paths, selected_path, &mut on_select);
+            });
             ui.add_space(gap);
-            ui.allocate_ui_with_layout(
-                Vec2::new(rest, 1.0),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    ui.set_min_width(rest);
-                    ui.set_max_width(rest);
-                    diff(ui);
-                },
-            );
+            pane(ui, rest, |ui| {
+                diff_card(ui, th, selected_path, diff_text);
+            });
         });
     } else {
-        files(ui, &mut on_select);
+        changed_files_card(ui, th, paths, selected_path, &mut on_select);
         ui.add_space(gap);
-        diff(ui);
+        diff_card(ui, th, selected_path, diff_text);
     }
 }
 
