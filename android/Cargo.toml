@@ -39,8 +39,10 @@ radicle-job = { path = "vendor/radicle-job" }
 thiserror = "2"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 webbrowser = "1.0"
-# Matching radicle's git2 (object kinds for tree vs blob).
-git2 = { version = "0.21", default-features = false }
+# Matching radicle's git2 (object kinds for tree vs blob), plus HTTPS so we
+# can fetch a RID's bare repo directly from a Radicle web-seed gateway when
+# it isn't seeded locally yet (no p2p node running on-device).
+git2 = { version = "0.21", default-features = false, features = ["https"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
