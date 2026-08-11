@@ -351,9 +351,14 @@ mod tests {
 
         let model = update(model, 2).expect("loaded");
         assert_eq!(model, 1);
-        assert_eq!(view_len(model).expect("len"), 16);
+        assert_eq!(view_len(model).expect("len"), 12);
         assert_eq!(view_text(model, 0).unwrap().unwrap(), "Browse");
-        assert_eq!(view_text(model, 9).unwrap().unwrap(), "Repository");
+        assert_eq!(view_text(model, 2).unwrap().unwrap(), "Back");
+        assert_eq!(view_text(model, 5).unwrap().unwrap(), "Repository");
+        assert!(
+            view_text(model, 4).unwrap().unwrap().is_empty(),
+            "status copy under Back should be gone"
+        );
 
         assert_eq!(update(0, 3).unwrap(), 2);
         assert_eq!(view_len(2).unwrap(), 14);
