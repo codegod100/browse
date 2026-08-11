@@ -1,7 +1,7 @@
 //! Repo identity header: name, description, RID, head.
 
 use eframe::egui;
-use vidya::{dim_label, title_2, Theme};
+use vidya::{dim_label, title, Theme};
 
 use crate::linkify;
 use crate::view_api::ViewModel;
@@ -15,7 +15,7 @@ impl Meta {
         let rid = model.string(2);
         let head = model.string(3);
 
-        title_2(ui, th, name);
+        title(ui, th, name);
         ui.add_space(th.spacing.sm);
         if !desc.is_empty() {
             linkify::body(ui, th, desc);
