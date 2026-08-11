@@ -88,6 +88,7 @@ pub fn paint(
     slots: &Slots,
     repo_ui: &mut RepoUi,
     profile: Option<&Profile>,
+    cobs_loading: bool,
 ) -> PaintResult {
     let len = match gleam_guest::view_len(model) {
         Ok(n) => n.max(0) as usize,
@@ -140,7 +141,17 @@ pub fn paint(
     let PaintEffects {
         pending_msg,
         open_rid,
-    } = crate::view_api::paint(ui, th, &ops, 0, ops.len(), slots, repo_ui, profile);
+    } = crate::view_api::paint(
+        ui,
+        th,
+        &ops,
+        0,
+        ops.len(),
+        slots,
+        repo_ui,
+        profile,
+        cobs_loading,
+    );
 
     PaintResult {
         pending_msg,

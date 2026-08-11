@@ -737,9 +737,6 @@ impl eframe::App for BrowseApp {
                             if self.is_opening() {
                                 dim_label(ui, &th, "Opening repo…");
                                 ui.add_space(th.spacing.sm);
-                            } else if self.cobs_loading {
-                                dim_label(ui, &th, "Loading patches…");
-                                ui.add_space(th.spacing.sm);
                             } else if self.inventory_loading && self.model == Some(0) {
                                 dim_label(ui, &th, "Loading local repos…");
                                 ui.add_space(th.spacing.sm);
@@ -767,6 +764,7 @@ impl eframe::App for BrowseApp {
                                     &self.slots,
                                     &mut self.repo_ui,
                                     self.profile.as_ref(),
+                                    self.cobs_loading,
                                 );
                                 if let Some(err) = error {
                                     self.err = Some(err);
@@ -819,6 +817,7 @@ impl eframe::App for BrowseApp {
                                 &self.slots,
                                 &mut self.repo_ui,
                                 self.profile.as_ref(),
+                                self.cobs_loading,
                             );
 
                             if let Some(err) = error {
