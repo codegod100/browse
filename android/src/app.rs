@@ -735,7 +735,9 @@ impl eframe::App for BrowseApp {
                                 return;
                             }
                             ui.add_space(th.spacing.sm);
-                            if self.is_opening() {
+                            // Reloads keep the viewing chrome; spinner on Patches covers
+                            // progress — don't flash "Opening repo…" on tab re-press.
+                            if self.is_opening() && !self.reload_in_flight {
                                 dim_label(ui, &th, "Opening repo…");
                                 ui.add_space(th.spacing.sm);
                             } else if self.inventory_loading && self.model == Some(0) {
@@ -765,7 +767,7 @@ impl eframe::App for BrowseApp {
                                     &self.slots,
                                     &mut self.repo_ui,
                                     self.profile.as_ref(),
-                                    self.cobs_loading,
+                                    self.cobs_loading || self.reload_in_flight,
                                 );
                                 if let Some(err) = error {
                                     self.err = Some(err);
@@ -818,7 +820,7 @@ impl eframe::App for BrowseApp {
                                 &self.slots,
                                 &mut self.repo_ui,
                                 self.profile.as_ref(),
-                                self.cobs_loading,
+                                self.cobs_loading || self.reload_in_flight,
                             );
 
                             if let Some(err) = error {
