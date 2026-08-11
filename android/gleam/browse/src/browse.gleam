@@ -233,7 +233,7 @@ fn enter_text(i: Int) -> String {
 // --- Viewing ---------------------------------------------------------------
 
 fn viewing_len() -> Int {
-  16
+  15
 }
 
 fn viewing_at(i: Int) -> Int {
@@ -252,8 +252,7 @@ fn viewing_at(i: Int) -> Int {
     11 -> meta()
     12 -> card_close()
     13 -> space(2)
-    14 -> status_op()
-    15 -> repo_tabs()
+    14 -> repo_tabs()
     _ -> 0
   }
 }
@@ -265,7 +264,6 @@ fn viewing_text(i: Int) -> String {
     4 -> "Repository opened from local Radicle storage."
     6 -> label(35)
     9 -> label(36)
-    14 -> "Browse files at HEAD or recent commits and diffs."
     _ -> ""
   }
 }
