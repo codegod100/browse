@@ -17,13 +17,8 @@ impl Readme {
             dim_label(ui, th, "(no README)");
             return;
         }
-        egui::ScrollArea::vertical()
-            .id_salt(("readme", slot))
-            .max_height(ui.available_height().max(120.0))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                markdown::render(ui, th, md);
-            });
+        // Expand to natural height; whole-page scroll owns overflow.
+        ui.set_min_width(ui.available_width());
+        markdown::render(ui, th, md);
     }
 }

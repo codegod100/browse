@@ -487,13 +487,6 @@ fn tab_btn(
     }
 }
 
-fn remaining_height(ui: &egui::Ui, th: &Theme) -> f32 {
-    // Prefer the visible clip region so panes fill the central panel residual.
-    // Leave page padding below the bottom panes so they are not flush with the
-    // viewport edge.
-    (ui.clip_rect().bottom() - ui.cursor().top() - th.spacing.page).max(160.0)
-}
-
 /// Left list pane tracks a fraction of available width (no fixed px cap).
 fn list_pane_width(avail_w: f32, fraction: f32) -> f32 {
     (avail_w * fraction).max(1.0)
@@ -508,35 +501,37 @@ fn files_tab(
 ) {
     let gap = th.spacing.lg;
     let avail_w = ui.available_width();
-    let avail_h = remaining_height(ui, th);
     let list_w = list_pane_width(avail_w, 0.32);
 
     if side_by_side(avail_w, 200.0, gap) {
-        ui.allocate_ui_with_layout(
-            Vec2::new(avail_w, avail_h),
-            Layout::left_to_right(Align::Min),
-            |ui| {
-                ui.set_min_size(Vec2::new(avail_w, avail_h));
-                ui.set_max_size(Vec2::new(avail_w, avail_h));
-                pane(ui, list_w, avail_h, |ui| {
+        let rest = (avail_w - list_w - gap).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(list_w, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(list_w);
+                    ui.set_max_width(list_w);
                     card(ui, th, |ui| {
                         file_list(ui, th, state, profile);
                     });
-                });
-                ui.add_space(gap);
-                let rest = (avail_w - list_w - gap).max(1.0);
-                pane(ui, rest, avail_h, |ui| {
+                },
+            );
+            ui.add_space(gap);
+            ui.allocate_ui_with_layout(
+                Vec2::new(rest, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(rest);
+                    ui.set_max_width(rest);
                     card(ui, th, |ui| {
                         file_content(ui, th, state);
                     });
-                });
-            },
-        );
+                },
+            );
+        });
     } else {
-        let half = ((avail_h - gap) * 0.4).max(120.0);
-        ui.set_min_height(avail_h);
         card(ui, th, |ui| {
-            ui.set_min_height(half);
             file_list(ui, th, state, profile);
         });
         ui.add_space(gap);
@@ -557,81 +552,39 @@ fn commits_tab(
     let avail_w = ui.available_width();
     let list_w = list_pane_width(avail_w, 0.34);
 
-    // Expand list/detail to natural height; one page scrollbar (no nested panes).
-    page_scroll(ui, "commits_page", |ui| {
-        if side_by_side(avail_w, 220.0, gap) {
-            let rest = (avail_w - list_w - gap).max(1.0);
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.allocate_ui_with_layout(
-                    Vec2::new(list_w, 1.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_min_width(list_w);
-                        ui.set_max_width(list_w);
-                        card(ui, th, |ui| {
-                            commit_list(ui, th, &model.commits, state, profile);
-                        });
-                    },
-                );
-                ui.add_space(gap);
-                ui.allocate_ui_with_layout(
-                    Vec2::new(rest, 1.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_min_width(rest);
-                        ui.set_max_width(rest);
-                        commit_detail(ui, th, state, profile);
-                    },
-                );
-            });
-        } else {
-            card(ui, th, |ui| {
-                commit_list(ui, th, &model.commits, state, profile);
-            });
+    // Expand to natural height; Vidya central_page owns the scrollbar.
+    if side_by_side(avail_w, 220.0, gap) {
+        let rest = (avail_w - list_w - gap).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(list_w, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(list_w);
+                    ui.set_max_width(list_w);
+                    card(ui, th, |ui| {
+                        commit_list(ui, th, &model.commits, state, profile);
+                    });
+                },
+            );
             ui.add_space(gap);
-            commit_detail(ui, th, state, profile);
-        }
-    });
-}
-
-fn pane(ui: &mut egui::Ui, width: f32, height: f32, add: impl FnOnce(&mut egui::Ui)) {
-    let w = width.max(1.0);
-    let h = height.max(1.0);
-    ui.allocate_ui_with_layout(Vec2::new(w, h), Layout::top_down(Align::Min), |ui| {
-        ui.set_min_size(Vec2::new(w, h));
-        ui.set_max_size(Vec2::new(w, h));
-        add(ui);
-    });
-}
-
-/// Page-level scroll: content grows; one scrollbar for the tab body.
-fn page_scroll(ui: &mut egui::Ui, id: impl std::hash::Hash, add: impl FnOnce(&mut egui::Ui)) {
-    egui::ScrollArea::vertical()
-        .id_salt(id)
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            add(ui);
+            ui.allocate_ui_with_layout(
+                Vec2::new(rest, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(rest);
+                    ui.set_max_width(rest);
+                    commit_detail(ui, th, state, profile);
+                },
+            );
         });
-}
-
-fn fill_scroll(
-    ui: &mut egui::Ui,
-    id: impl std::hash::Hash,
-    both: bool,
-    add: impl FnOnce(&mut egui::Ui),
-) {
-    let h = ui.available_height().max(80.0);
-    let mut area = if both {
-        egui::ScrollArea::both()
     } else {
-        egui::ScrollArea::vertical()
-    };
-    area = area.id_salt(id).max_height(h).auto_shrink([false, false]);
-    area.show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        add(ui);
-    });
+        card(ui, th, |ui| {
+            commit_list(ui, th, &model.commits, state, profile);
+        });
+        ui.add_space(gap);
+        commit_detail(ui, th, state, profile);
+    }
 }
 
 fn file_list(
@@ -661,35 +614,33 @@ fn file_list(
         .map(|f| (f.name.clone(), f.is_tree))
         .collect();
 
-    fill_scroll(ui, "tab_files", false, |ui| {
-        if up {
-            let response = selectable_row(ui, th, "../", false, true, true);
-            if response.clicked() {
-                if let Some(profile) = profile {
-                    state.go_up(profile);
+    if up {
+        let response = selectable_row(ui, th, "../", false, true, true);
+        if response.clicked() {
+            if let Some(profile) = profile {
+                state.go_up(profile);
+            }
+        }
+    }
+    for (name, is_tree) in entries {
+        let full = state.join_cwd(&name);
+        let selected = !is_tree && state.selected_file.as_deref() == Some(full.as_str());
+        let label = if is_tree {
+            format!("{name}/")
+        } else {
+            name.clone()
+        };
+        let response = selectable_row(ui, th, &label, selected, is_tree, true);
+        if response.clicked() {
+            if let Some(profile) = profile {
+                if is_tree {
+                    state.enter_dir(profile, &name);
+                } else {
+                    state.select_file(profile, &full);
                 }
             }
         }
-        for (name, is_tree) in entries {
-            let full = state.join_cwd(&name);
-            let selected = !is_tree && state.selected_file.as_deref() == Some(full.as_str());
-            let label = if is_tree {
-                format!("{name}/")
-            } else {
-                name.clone()
-            };
-            let response = selectable_row(ui, th, &label, selected, is_tree, true);
-            if response.clicked() {
-                if let Some(profile) = profile {
-                    if is_tree {
-                        state.enter_dir(profile, &name);
-                    } else {
-                        state.select_file(profile, &full);
-                    }
-                }
-            }
-        }
-    });
+    }
 }
 
 fn file_content(ui: &mut egui::Ui, th: &Theme, state: &RepoUi) {
@@ -701,13 +652,12 @@ fn file_content(ui: &mut egui::Ui, th: &Theme, state: &RepoUi) {
                 dim_label(ui, th, err);
                 return;
             }
-            fill_scroll(ui, "file_content", true, |ui| {
-                if state.file_is_md {
-                    markdown::render(ui, th, &state.file_content);
-                } else {
-                    code_block(ui, th, &state.file_content);
-                }
-            });
+            ui.set_min_width(ui.available_width());
+            if state.file_is_md {
+                markdown::render(ui, th, &state.file_content);
+            } else {
+                code_block(ui, th, &state.file_content);
+            }
         }
         None => dim_label(ui, th, "Select a file to view its contents."),
     }
@@ -751,40 +701,38 @@ fn patches_tab(
     let avail_w = ui.available_width();
     let list_w = list_pane_width(avail_w, 0.34);
 
-    page_scroll(ui, "patches_page", |ui| {
-        if side_by_side(avail_w, 220.0, gap) {
-            let rest = (avail_w - list_w - gap).max(1.0);
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.allocate_ui_with_layout(
-                    Vec2::new(list_w, 1.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_min_width(list_w);
-                        ui.set_max_width(list_w);
-                        card(ui, th, |ui| {
-                            patch_list(ui, th, &model.patches, state, profile);
-                        });
-                    },
-                );
-                ui.add_space(gap);
-                ui.allocate_ui_with_layout(
-                    Vec2::new(rest, 1.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_min_width(rest);
-                        ui.set_max_width(rest);
-                        patch_detail(ui, th, &model.patches, state, profile);
-                    },
-                );
-            });
-        } else {
-            card(ui, th, |ui| {
-                patch_list(ui, th, &model.patches, state, profile);
-            });
+    if side_by_side(avail_w, 220.0, gap) {
+        let rest = (avail_w - list_w - gap).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(list_w, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(list_w);
+                    ui.set_max_width(list_w);
+                    card(ui, th, |ui| {
+                        patch_list(ui, th, &model.patches, state, profile);
+                    });
+                },
+            );
             ui.add_space(gap);
-            patch_detail(ui, th, &model.patches, state, profile);
-        }
-    });
+            ui.allocate_ui_with_layout(
+                Vec2::new(rest, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(rest);
+                    ui.set_max_width(rest);
+                    patch_detail(ui, th, &model.patches, state, profile);
+                },
+            );
+        });
+    } else {
+        card(ui, th, |ui| {
+            patch_list(ui, th, &model.patches, state, profile);
+        });
+        ui.add_space(gap);
+        patch_detail(ui, th, &model.patches, state, profile);
+    }
 }
 
 fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi) {
@@ -792,44 +740,42 @@ fn issues_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut Repo
     let avail_w = ui.available_width();
     let list_w = list_pane_width(avail_w, 0.34);
 
-    page_scroll(ui, "issues_page", |ui| {
-        if side_by_side(avail_w, 220.0, gap) {
-            let rest = (avail_w - list_w - gap).max(1.0);
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.allocate_ui_with_layout(
-                    Vec2::new(list_w, 1.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_min_width(list_w);
-                        ui.set_max_width(list_w);
-                        card(ui, th, |ui| {
-                            issue_list(ui, th, &model.issues, state);
-                        });
-                    },
-                );
-                ui.add_space(gap);
-                ui.allocate_ui_with_layout(
-                    Vec2::new(rest, 1.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_min_width(rest);
-                        ui.set_max_width(rest);
-                        card(ui, th, |ui| {
-                            issue_detail(ui, th, &model.issues, state);
-                        });
-                    },
-                );
-            });
-        } else {
-            card(ui, th, |ui| {
-                issue_list(ui, th, &model.issues, state);
-            });
+    if side_by_side(avail_w, 220.0, gap) {
+        let rest = (avail_w - list_w - gap).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(list_w, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(list_w);
+                    ui.set_max_width(list_w);
+                    card(ui, th, |ui| {
+                        issue_list(ui, th, &model.issues, state);
+                    });
+                },
+            );
             ui.add_space(gap);
-            card(ui, th, |ui| {
-                issue_detail(ui, th, &model.issues, state);
-            });
-        }
-    });
+            ui.allocate_ui_with_layout(
+                Vec2::new(rest, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(rest);
+                    ui.set_max_width(rest);
+                    card(ui, th, |ui| {
+                        issue_detail(ui, th, &model.issues, state);
+                    });
+                },
+            );
+        });
+    } else {
+        card(ui, th, |ui| {
+            issue_list(ui, th, &model.issues, state);
+        });
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            issue_detail(ui, th, &model.issues, state);
+        });
+    }
 }
 
 fn patch_list(
@@ -937,7 +883,7 @@ fn patch_detail(
     let gap = th.spacing.md;
 
     // Description, changed files, and diff expand to natural height and ride
-    // the tab page ScrollArea — no nested max-height scroll boxes.
+    // the whole-page ScrollArea — no nested max-height scroll boxes.
     card(ui, th, |ui| {
         title_2(ui, th, &p.title);
         ui.add_space(th.spacing.sm);
@@ -1155,44 +1101,42 @@ fn jobs_tab(ui: &mut egui::Ui, th: &Theme, model: &ViewModel, state: &mut RepoUi
     let avail_w = ui.available_width();
     let list_w = list_pane_width(avail_w, 0.34);
 
-    page_scroll(ui, "jobs_page", |ui| {
-        if side_by_side(avail_w, 220.0, gap) {
-            let rest = (avail_w - list_w - gap).max(1.0);
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.allocate_ui_with_layout(
-                    Vec2::new(list_w, 1.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_min_width(list_w);
-                        ui.set_max_width(list_w);
-                        card(ui, th, |ui| {
-                            job_list(ui, th, &model.jobs, state);
-                        });
-                    },
-                );
-                ui.add_space(gap);
-                ui.allocate_ui_with_layout(
-                    Vec2::new(rest, 1.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_min_width(rest);
-                        ui.set_max_width(rest);
-                        card(ui, th, |ui| {
-                            job_detail(ui, th, &model.jobs, state);
-                        });
-                    },
-                );
-            });
-        } else {
-            card(ui, th, |ui| {
-                job_list(ui, th, &model.jobs, state);
-            });
+    if side_by_side(avail_w, 220.0, gap) {
+        let rest = (avail_w - list_w - gap).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(list_w, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(list_w);
+                    ui.set_max_width(list_w);
+                    card(ui, th, |ui| {
+                        job_list(ui, th, &model.jobs, state);
+                    });
+                },
+            );
             ui.add_space(gap);
-            card(ui, th, |ui| {
-                job_detail(ui, th, &model.jobs, state);
-            });
-        }
-    });
+            ui.allocate_ui_with_layout(
+                Vec2::new(rest, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(rest);
+                    ui.set_max_width(rest);
+                    card(ui, th, |ui| {
+                        job_detail(ui, th, &model.jobs, state);
+                    });
+                },
+            );
+        });
+    } else {
+        card(ui, th, |ui| {
+            job_list(ui, th, &model.jobs, state);
+        });
+        ui.add_space(gap);
+        card(ui, th, |ui| {
+            job_detail(ui, th, &model.jobs, state);
+        });
+    }
 }
 
 fn job_list(ui: &mut egui::Ui, th: &Theme, jobs: &[JobRow], state: &mut RepoUi) {

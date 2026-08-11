@@ -86,22 +86,14 @@ impl RepoList {
             return open;
         }
 
-        // Fill remaining viewport height; leave page padding below the card.
-        let h = (ui.clip_rect().bottom() - ui.cursor().top() - th.spacing.page).max(200.0);
-        egui::ScrollArea::vertical()
-            .id_salt("local_repos")
-            .max_height(h)
-            .min_scrolled_height(h)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                for repo in filtered {
-                    let response = repo_row(ui, th, repo);
-                    if response.clicked() {
-                        open = Some(repo.rid.clone());
-                    }
-                }
-            });
+        // Expand to natural height; whole-page scroll owns overflow.
+        ui.set_min_width(ui.available_width());
+        for repo in filtered {
+            let response = repo_row(ui, th, repo);
+            if response.clicked() {
+                open = Some(repo.rid.clone());
+            }
+        }
         open
     }
 }

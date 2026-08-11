@@ -9,9 +9,9 @@ use eframe::egui::{
 };
 use radicle::Profile;
 use vidya::{
-    apply_dark, body, button, clipboard_text, dim_label, grid_cols_with, normalize_paste,
+    apply_dark, body, button, central_page, clipboard_text, dim_label, normalize_paste,
     paint_icon_in, primary_button, reserve_system_chrome, set_clipboard_text, sync_soft_keyboard,
-    title, ColSpec, GridOpts, Icon, Theme,
+    title, Icon, Theme,
 };
 
 use crate::components::{RepoList, RepoUi, Tab};
@@ -535,19 +535,10 @@ impl eframe::App for BrowseApp {
         // No-op on desktop. See vidya::reserve_system_chrome / top_header.
         reserve_system_chrome(ctx, &th);
 
-        // Fixed central shell (no page ScrollArea): fill-height lists/panes own
-        // scrolling so we do not nest solid gutters (double scrollbar).
-        egui::CentralPanel::default()
-            .frame(th.page_frame())
-            .show(ctx, |ui| {
-                grid_cols_with(
-                    ui,
-                    &th,
-                    "browse",
-                    &[ColSpec::Flex],
-                    GridOpts::page(&th),
-                    |g| {
-                        g.section(|ui| {
+        // Whole-page scroll via Vidya central_page — content expands; no nested
+        // component ScrollAreas (those fight the page gutter).
+        central_page(ctx, &th, "browse", |g| {
+            g.section(|ui| {
                             if self.profile.is_none() {
                                 let mut create = false;
                                 title(ui, &th, "Create Radicle profile");
@@ -851,10 +842,8 @@ impl eframe::App for BrowseApp {
                                     self.handle_msg(ui.ctx(), msg);
                                 }
                             }
-                        });
-                    },
-                );
             });
+        });
 
         paint_toast(
             ctx,
