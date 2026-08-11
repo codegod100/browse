@@ -233,33 +233,28 @@ fn enter_text(i: Int) -> String {
 // --- Viewing ---------------------------------------------------------------
 
 fn viewing_len() -> Int {
-  12
+  9
 }
 
 fn viewing_at(i: Int) -> Int {
   case i {
-    0 -> header_op()
-    1 -> space(1)
-    2 -> button(0, msg_back(), 0)
-    3 -> space(2)
-    4 -> card_open()
-    5 -> title_op()
-    6 -> space(1)
-    7 -> meta()
-    8 -> card_close()
-    9 -> space(2)
-    10 -> status_op()
-    11 -> repo_tabs()
+    0 -> button(0, msg_back(), 0)
+    1 -> space(2)
+    2 -> card_open()
+    3 -> title_op()
+    4 -> space(1)
+    5 -> meta()
+    6 -> card_close()
+    7 -> space(2)
+    8 -> repo_tabs()
     _ -> 0
   }
 }
 
 fn viewing_text(i: Int) -> String {
   case i {
-    0 -> label(1)
-    2 -> label(4)
-    5 -> label(36)
-    10 -> "Browse files at HEAD or recent commits and diffs."
+    0 -> label(4)
+    3 -> label(36)
     _ -> ""
   }
 }
