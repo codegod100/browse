@@ -13,7 +13,7 @@ just host rad:z1ocacrfUUDHaSpspzjX5bUYf36w
 just smoke rad:z1ocacrfUUDHaSpspzjX5bUYf36w
 
 nix run . -- --smoke rad:z1ocacrfUUDHaSpspzjX5bUYf36w
-nix build            # hermetic desktop binary (uses android/gleam/browse/prebuilt/browse.wasm)
+nix build            # hermetic desktop binary (uses gleam/browse/prebuilt/browse.wasm)
 ```
 
 Needs a local Radicle profile with the repo seeded. On first launch (including the Android APK), Browse shows a **Create profile** form when none exists — same as `rad auth` (alias + optional passphrase under `$RAD_HOME` / app-private storage). Live Gleam rebuilds use a wasm-capable Gleam (`~/code/gleam` on branch `wasm`); `nix build` falls back to the vendored prebuilt Wasm.
@@ -32,7 +32,7 @@ just install-android         # adb install -r ./result-android/browse.apk
 
 Package id: `uk.nandi.browse` (aarch64 / arm64-v8a). Signed with the committed `android/ci.keystore` (password `android`, alias `androiddebugkey`).
 
-Sibling path dep: `android/Cargo.toml` expects `../../vidya` (materialized by the flake for `nix build`, or a live checkout next to this repo).
+Sibling path dep: root `Cargo.toml` expects `../vidya` (materialized by the flake for `nix build`, or a live checkout next to this repo).
 
 ### CI artifacts (boxci)
 
@@ -47,7 +47,7 @@ RID: [`rad:z2QL7QdL2QGg6FmX3wcw3Mzm2ykE3`](https://nandi.radicle.garden/rad:z2QL
 
 ## View API
 
-Gleam builds screens with view helpers in [`android/gleam/browse/src/browse.gleam`](android/gleam/browse/src/browse.gleam) (`header`, `md_body`, `file_list`, `commit_list`, …). Those pack to int opcodes; Rust [`android/src/view_api.rs`](android/src/view_api.rs) decodes them onto Vidya widgets. Dynamic repo rows live in `ViewModel` (host). Enter inventory (recent + search) is host-owned; Gleam owns enter chrome and viewing/error copy.
+Gleam builds screens with view helpers in [`gleam/browse/src/browse.gleam`](gleam/browse/src/browse.gleam) (`header`, `md_body`, `file_list`, `commit_list`, …). Those pack to int opcodes; Rust [`src/view_api.rs`](src/view_api.rs) decodes them onto Vidya widgets. Dynamic repo rows live in `ViewModel` (host). Enter inventory (recent + search) is host-owned; Gleam owns enter chrome and viewing/error copy.
 
 ### Wasm strings
 
@@ -60,22 +60,23 @@ When the guest is built with Gleam Wasm **strings**, it should export:
 | `memory` | Linear memory holding managed values |
 | `gleam_string_utf8_len` / `gleam_string_utf8_ptr` (or `__gleam_string_*`) | Inspect a managed `String` as UTF-8 |
 
-Host path: [`android/src/gleam_guest.rs`](android/src/gleam_guest.rs). Hermetic builds use `android/gleam/browse/prebuilt/browse.wasm` (from `tools/gen_browse_wat.py` + `browse.wat`).
+Host path: [`src/gleam_guest.rs`](src/gleam_guest.rs). Hermetic builds use `gleam/browse/prebuilt/browse.wasm` (from `tools/gen_browse_wat.py` + `browse.wat`).
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `android/` | Shared lib + Android NativeActivity (`cargo-apk`) |
+| `src/` + root `Cargo.toml` | Shared lib (desktop rlib + Android NativeActivity cdylib via `cargo-apk`) |
 | `host/` | Desktop binary (`browse`) |
-| `android/gleam/browse/src/browse.gleam` | TEA screens (enter/viewing/error/noprof) + labels + view DSL |
-| `tools/gen_browse_wat.py` | Regenerates string-capable `android/gleam/browse/prebuilt/browse.{wat,wasm}` |
-| `android/src/components/` | Meta, Readme, RepoBrowser (Files/Commits/Patches/Issues/Jobs; status tabs + search) |
-| `android/src/view_api.rs` | Host paint API (`Op` / `ViewModel` → components) |
-| `android/src/markdown.rs` | README via pulldown-cmark → Vidya text |
-| `android/src/rad.rs` | `Profile::load` / `create_profile` + open by RID → snapshot |
-| `android/src/gleam_guest.rs` | wasmtime + `browse__*` exports + String decode |
-| `android/src/gleam_bridge.rs` | opcode/text fetch → `view_api` |
-| `android/src/app.rs` | window, RID field, Open effect |
-| `android/src/recent.rs` | recently viewed repos (`~/.config/browse/recent.json`) |
-| `android/src/tab_prefs.rs` | per-repo tab + status filters (`~/.config/browse/tabs.json`) |
+| `android/` | APK packaging only (launcher icons, CI keystore) |
+| `gleam/browse/src/browse.gleam` | TEA screens (enter/viewing/error/noprof) + labels + view DSL |
+| `tools/gen_browse_wat.py` | Regenerates string-capable `gleam/browse/prebuilt/browse.{wat,wasm}` |
+| `src/components/` | Meta, Readme, RepoBrowser (Files/Commits/Patches/Issues/Jobs; status tabs + search) |
+| `src/view_api.rs` | Host paint API (`Op` / `ViewModel` → components) |
+| `src/markdown.rs` | README via pulldown-cmark → Vidya text |
+| `src/rad.rs` | `Profile::load` / `create_profile` + open by RID → snapshot |
+| `src/gleam_guest.rs` | wasmtime + `browse__*` exports + String decode |
+| `src/gleam_bridge.rs` | opcode/text fetch → `view_api` |
+| `src/app.rs` | window, RID field, Open effect |
+| `src/recent.rs` | recently viewed repos (`~/.config/browse/recent.json`) |
+| `src/tab_prefs.rs` | per-repo tab + status filters (`~/.config/browse/tabs.json`) |

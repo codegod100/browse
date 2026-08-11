@@ -19,8 +19,8 @@ name = "browse"
 path = "src/main.rs"
 
 [dependencies]
-browse = { path = "../android" }
-# Host needs winit backends; android package only enables glow in its base deps.
+browse = { path = ".." }
+# Host needs winit backends; shared lib only enables glow in its base deps.
 eframe = { version = "0.31", default-features = false, features = [
     "default_fonts",
     "glow",

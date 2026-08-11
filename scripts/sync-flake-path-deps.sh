@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Materialize sibling path deps from flake.lock inputs.
 #
-# android/Cargo.toml expects ../../vidya (i.e. sibling of the browse checkout).
+# Root Cargo.toml expects ../vidya (i.e. sibling of the browse checkout).
 #
 # Usage:
 #   bash scripts/sync-flake-path-deps.sh           # vidya

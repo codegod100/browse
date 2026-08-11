@@ -11,7 +11,7 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Path deps: android → ../../vidya, host → ../android.
+    # Path deps: shared lib → ../vidya, host → ...
     # Pin vidya so `nix build` works without a monorepo checkout.
     # Soft keyboard + clipboard live in browse now (vidya main no longer
     # carries the keyboard-api branch APIs), so pin default-branch tip.
@@ -62,8 +62,8 @@
           libxrandr
         ];
 
-      # Layout expected by android/Cargo.toml path deps:
-      #   parent/browse/{android,host}
+      # Layout expected by Cargo.toml path deps:
+      #   parent/browse/{src,host,android}
       #   parent/vidya
       browseSrcTree =
         pkgs:
@@ -91,7 +91,7 @@
           cp -a ${browseFiltered}/. $out/browse/
           cp -a ${vidya}/. $out/vidya/
           chmod -R u+w $out
-          rm -rf $out/browse/{.git,host/target,android/target} 2>/dev/null || true
+          rm -rf $out/browse/{.git,host/target,target} 2>/dev/null || true
         '';
 
       androidApiLevel = "28";
@@ -154,7 +154,7 @@
 
             OPENSSL_NO_VENDOR = "1";
             PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
-            # Prefer prebuilt android/gleam/browse/prebuilt/browse.wasm.
+            # Prefer prebuilt gleam/browse/prebuilt/browse.wasm.
             GLEAM = "";
             doCheck = false;
 
@@ -186,9 +186,9 @@
             version = "0.1.0";
             src = srcTree;
 
-            cargoRoot = "browse/android";
+            cargoRoot = "browse";
             cargoDeps = rustPlatformAndroid.importCargoLock {
-              lockFile = ./android/Cargo.lock;
+              lockFile = ./Cargo.lock;
               allowBuiltinFetchGit = true;
             };
 
@@ -261,9 +261,9 @@
               echo "  ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >&2
               echo "  linker=$CC_aarch64_linux_android" >&2
 
-              pushd browse/android >/dev/null
-              # Cargo.toml already points at ci.keystore (relative); ensure it exists.
-              [[ -f ci.keystore ]] || cp "$keystore" ci.keystore
+              pushd browse >/dev/null
+              # Cargo.toml already points at android/ci.keystore (relative); ensure it exists.
+              [[ -f android/ci.keystore ]] || cp "$keystore" android/ci.keystore
               cargo apk build --release --target ${androidTarget} -p browse --lib
               popd >/dev/null
 
@@ -275,20 +275,20 @@
               mkdir -p $out
               apk=""
               for cand in \
-                browse/android/target/release/apk/browse.apk \
-                browse/android/target/browse.apk \
-                browse/android/target/release/apk/browse-release.apk; do
+                browse/target/release/apk/browse.apk \
+                browse/target/browse.apk \
+                browse/target/release/apk/browse-release.apk; do
                 if [[ -f "$cand" ]]; then
                   apk="$cand"
                   break
                 fi
               done
               if [[ -z "''${apk:-}" ]]; then
-                apk="$(find browse/android/target -type f -path '*/release/apk/*.apk' ! -name '*-unaligned.apk' 2>/dev/null | head -1 || true)"
+                apk="$(find browse/target -type f -path '*/release/apk/*.apk' ! -name '*-unaligned.apk' 2>/dev/null | head -1 || true)"
               fi
               [[ -n "''${apk:-}" && -f "$apk" ]] || {
-                echo "APK not found under browse/android/target" >&2
-                find browse/android/target -name '*.apk' -o -name '*.so' 2>/dev/null | head -50 >&2 || true
+                echo "APK not found under browse/target" >&2
+                find browse/target -name '*.apk' -o -name '*.so' 2>/dev/null | head -50 >&2 || true
                 exit 1
               }
               cp "$apk" $out/browse.apk
@@ -348,7 +348,7 @@
                 exec cargo run --manifest-path host/Cargo.toml -- "$@"
               fi
 
-              echo "browse-run: need host/Cargo.toml with ../../vidya (or /vidya), or: nix run .#browse -- …" >&2
+              echo "browse-run: need host/Cargo.toml with ../vidya (or /vidya), or: nix run .#browse -- …" >&2
               exit 1
             '';
           };

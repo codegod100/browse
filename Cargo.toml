@@ -22,7 +22,7 @@ path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-vidya = { path = "../../vidya" }
+vidya = { path = "../vidya" }
 # Shared glow + fonts only — do NOT enable wayland/x11 here (feature unification
 # would pull them into the Android build and can make the activity exit immediately).
 eframe = { version = "0.31", default-features = false, features = [
@@ -79,7 +79,7 @@ package = "uk.nandi.browse"
 apk_name = "browse"
 # aarch64 = physical phones; x86_64 = Waydroid / emulators
 build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
-resources = "res"
+resources = "android/res"
 
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
@@ -100,7 +100,7 @@ icon = "@mipmap/ic_launcher"
 
 # Shared CI/debug keystore so successive installs upgrade cleanly.
 [package.metadata.android.signing.release]
-path = "ci.keystore"
+path = "android/ci.keystore"
 keystore_password = "android"
 key_alias = "androiddebugkey"
 key_password = "android"

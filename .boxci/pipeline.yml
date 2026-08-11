@@ -74,7 +74,7 @@ steps:
         rustc --version
         cargo --version
         cargo clippy --manifest-path host/Cargo.toml -- -D warnings
-        cargo check --manifest-path android/Cargo.toml --lib
+        cargo check --manifest-path Cargo.toml --lib
       ' </dev/null
 
   - label: ":android: APK (nixbuild.net)"

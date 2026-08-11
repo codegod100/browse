@@ -22,9 +22,9 @@ smoke rid:
     export GLEAM="${GLEAM:-${HOME}/code/gleam/target/debug/gleam}"
     cargo run --manifest-path host/Cargo.toml -- --smoke "{{rid}}"
 
-# Check / build the Android package as a library (desktop target)
+# Check / build the shared library (desktop target)
 lib:
-    cargo build --manifest-path android/Cargo.toml --lib
+    cargo build --manifest-path Cargo.toml --lib
 
 # Phone APK (aarch64) via flake
 android:
