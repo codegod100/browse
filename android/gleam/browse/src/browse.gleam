@@ -4,12 +4,10 @@
 ////   browse__{init,update,view_len,view_at,view_text,label,screen_name,tag_name}
 ////
 //// Screens (model):
-////   0 enter   — hint, help/about (inventory is host-owned: recent + search)
+////   0 enter   — hint + status (inventory is host-owned: recent + search)
 ////   1 viewing — chrome + meta + files|commits|patches|issues|jobs
 ////   2 error   — open failure
 ////   3 noprof  — missing ~/.radicle profile
-////   4 help    — how to use Browse
-////   5 about   — what Browse is
 ////
 //// Packing: payload * 16 + tag
 ////   0 meta · 1 title · 2 body · 3 repo_list · 4 button · 5 space · 6 status
@@ -47,14 +45,6 @@ pub fn msg_noprofile() -> Int {
   4
 }
 
-pub fn msg_help() -> Int {
-  5
-}
-
-pub fn msg_about() -> Int {
-  6
-}
-
 // --- Screen / opcode names (host diagnostics + docs) -----------------------
 
 pub fn screen_name(model: Int) -> String {
@@ -63,8 +53,6 @@ pub fn screen_name(model: Int) -> String {
     1 -> "viewing"
     2 -> "error"
     3 -> "noprof"
-    4 -> "help"
-    5 -> "about"
     _ -> "unknown"
   }
 }
@@ -178,10 +166,6 @@ pub fn update(model: Int, msg: Int) -> Int {
     3 -> 2
     // noprofile
     4 -> 3
-    // help
-    5 -> 4
-    // about
-    6 -> 5
     _ -> model
   }
 }
@@ -192,8 +176,6 @@ pub fn view_len(model: Int) -> Int {
     1 -> viewing_len()
     2 -> error_len()
     3 -> noprof_len()
-    4 -> help_len()
-    5 -> about_len()
     _ -> 0
   }
 }
@@ -204,8 +186,6 @@ pub fn view_at(model: Int, i: Int) -> Int {
     1 -> viewing_at(i)
     2 -> error_at(i)
     3 -> noprof_at(i)
-    4 -> help_at(i)
-    5 -> about_at(i)
     _ -> 0
   }
 }
@@ -216,8 +196,6 @@ pub fn view_text(model: Int, i: Int) -> String {
     1 -> viewing_text(i)
     2 -> error_text(i)
     3 -> noprof_text(i)
-    4 -> help_text(i)
-    5 -> about_text(i)
     _ -> ""
   }
 }
@@ -225,7 +203,7 @@ pub fn view_text(model: Int, i: Int) -> String {
 // --- Enter -----------------------------------------------------------------
 
 fn enter_len() -> Int {
-  12
+  8
 }
 
 fn enter_at(i: Int) -> Int {
@@ -238,10 +216,6 @@ fn enter_at(i: Int) -> Int {
     5 -> space(1)
     6 -> status_op()
     7 -> space(2)
-    8 -> button(0, msg_help(), 0)
-    9 -> space(1)
-    10 -> button(0, msg_about(), 0)
-    11 -> space(2)
     _ -> 0
   }
 }
@@ -252,8 +226,6 @@ fn enter_text(i: Int) -> String {
     2 -> "Paste a Radicle ID (rad:z…) for a repo already in local storage, then Open."
     4 -> label(20)
     6 -> label(34)
-    8 -> label(21)
-    10 -> label(25)
     _ -> ""
   }
 }
@@ -366,111 +338,6 @@ fn noprof_text(i: Int) -> String {
     4 -> "Could not load ~/.radicle. Create a profile with radicle, then reopen Browse."
     6 -> "Browse only shows repositories already present in local storage."
     8 -> "After `rad auth` (or equivalent), restart Browse and seed a project."
-    _ -> ""
-  }
-}
-
-// --- Help ------------------------------------------------------------------
-
-fn help_len() -> Int {
-  26
-}
-
-fn help_at(i: Int) -> Int {
-  case i {
-    0 -> header_op()
-    1 -> space(1)
-    2 -> button(0, msg_back(), 0)
-    3 -> space(1)
-    4 -> button(0, msg_about(), 0)
-    5 -> space(2)
-    6 -> card_open()
-    7 -> title_op()
-    8 -> space(1)
-    9 -> body_op()
-    10 -> space(1)
-    11 -> body_op()
-    12 -> space(1)
-    13 -> body_op()
-    14 -> space(1)
-    15 -> body_op()
-    16 -> space(1)
-    17 -> status_op()
-    18 -> space(2)
-    19 -> title_op()
-    20 -> space(1)
-    21 -> body_op()
-    22 -> space(1)
-    23 -> body_op()
-    24 -> body_op()
-    25 -> card_close()
-    _ -> 0
-  }
-}
-
-fn help_text(i: Int) -> String {
-  case i {
-    0 -> label(1)
-    2 -> label(4)
-    4 -> label(25)
-    7 -> "How to use Browse"
-    9 -> "1. Seed or clone a repository into your local Radicle storage."
-    11 -> "2. Paste its rad:z… ID in the RID field, or pick it from Local repos."
-    13 -> "3. Press Open to load name, description, files, and commits."
-    15 -> "4. Use Files for the tree at HEAD; use Commits for history and diffs."
-    17 -> "Files opens blobs at HEAD. Commits shows history and per-path diffs."
-    19 -> "Tips"
-    21 -> "The RID field also filters the local inventory as you type."
-    23 -> "Click a local repo row to fill the RID and open it immediately."
-    24 -> "Copy chip on the RID field puts the current ID on the clipboard."
-    _ -> ""
-  }
-}
-
-// --- About -----------------------------------------------------------------
-
-fn about_len() -> Int {
-  20
-}
-
-fn about_at(i: Int) -> Int {
-  case i {
-    0 -> header_op()
-    1 -> space(1)
-    2 -> button(0, msg_back(), 0)
-    3 -> space(1)
-    4 -> button(0, msg_help(), 0)
-    5 -> space(2)
-    6 -> card_open()
-    7 -> title_op()
-    8 -> space(1)
-    9 -> body_op()
-    10 -> space(1)
-    11 -> body_op()
-    12 -> space(1)
-    13 -> status_op()
-    14 -> space(2)
-    15 -> title_op()
-    16 -> space(1)
-    17 -> body_op()
-    18 -> body_op()
-    19 -> card_close()
-    _ -> 0
-  }
-}
-
-fn about_text(i: Int) -> String {
-  case i {
-    0 -> label(1)
-    2 -> label(4)
-    4 -> label(21)
-    7 -> "About Browse"
-    9 -> "Browse is a minimal Radicle repository viewer for your desktop."
-    11 -> "It reads projects already seeded in local storage — it does not dial the network."
-    13 -> label(35)
-    15 -> "Stack"
-    17 -> "Gleam owns screens, navigation, and UI copy (this Wasm guest)."
-    18 -> "Rust hosts Vidya/egui painting and the radicle crates for Profile + git."
     _ -> ""
   }
 }

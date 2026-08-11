@@ -59,8 +59,6 @@ SCREEN_NAMES = {
     1: "viewing",
     2: "error",
     3: "noprof",
-    4: "help",
-    5: "about",
 }
 
 TAG_NAMES = {
@@ -104,10 +102,6 @@ SCREENS = {
         (pack(6), "Filter by typing in the RID field."),
         (pack(5, 1), None),
         (pack(6), "Local only — Browse does not fetch from the network."),
-        (pack(5, 2), None),
-        (button(0, 5), "Help"),
-        (pack(5, 1), None),
-        (button(0, 6), "About"),
         (pack(5, 2), None),
     ],
     1: [  # viewing
@@ -155,56 +149,6 @@ SCREENS = {
         (pack(5, 1), None),
         (pack(2), "After `rad auth` (or equivalent), restart Browse and seed a project."),
         (slot(2, 5), None),
-        (pack(9), None),
-    ],
-    4: [  # help
-        (pack(7), "Browse"),
-        (pack(5, 1), None),
-        (button(0, 1), "Back"),
-        (pack(5, 1), None),
-        (button(0, 6), "About"),
-        (pack(5, 2), None),
-        (pack(8), None),
-        (pack(1), "How to use Browse"),
-        (pack(5, 1), None),
-        (pack(2), "1. Seed or clone a repository into your local Radicle storage."),
-        (pack(5, 1), None),
-        (pack(2), "2. Paste its rad:z… ID in the RID field, or pick it from Local repos."),
-        (pack(5, 1), None),
-        (pack(2), "3. Press Open to load name, description, files, and commits."),
-        (pack(5, 1), None),
-        (pack(2), "4. Use Files for the tree at HEAD; use Commits for history and diffs."),
-        (pack(5, 1), None),
-        (pack(6), "Files opens blobs at HEAD. Commits shows history and per-path diffs."),
-        (pack(5, 2), None),
-        (pack(1), "Tips"),
-        (pack(5, 1), None),
-        (pack(2), "The RID field also filters the local inventory as you type."),
-        (pack(5, 1), None),
-        (pack(2), "Click a local repo row to fill the RID and open it immediately."),
-        (pack(2), "Copy chip on the RID field puts the current ID on the clipboard."),
-        (pack(9), None),
-    ],
-    5: [  # about
-        (pack(7), "Browse"),
-        (pack(5, 1), None),
-        (button(0, 1), "Back"),
-        (pack(5, 1), None),
-        (button(0, 5), "Help"),
-        (pack(5, 2), None),
-        (pack(8), None),
-        (pack(1), "About Browse"),
-        (pack(5, 1), None),
-        (pack(2), "Browse is a minimal Radicle repository viewer for your desktop."),
-        (pack(5, 1), None),
-        (pack(2), "It reads projects already seeded in local storage — it does not dial the network."),
-        (pack(5, 1), None),
-        (pack(6), "Vidya shell · Gleam screens · Radicle storage"),
-        (pack(5, 2), None),
-        (pack(1), "Stack"),
-        (pack(5, 1), None),
-        (pack(2), "Gleam owns screens, navigation, and UI copy (this Wasm guest)."),
-        (pack(2), "Rust hosts Vidya/egui painting and the radicle crates for Profile + git."),
         (pack(9), None),
     ],
 }
@@ -304,7 +248,7 @@ def main() -> None:
         '  (func (export "browse__update") (param $model i64) (param $msg i64) (result i64)'
     )
     lines.append("    (block $out (result i64)")
-    for msg, model in [(1, 0), (2, 1), (3, 2), (4, 3), (5, 4), (6, 5)]:
+    for msg, model in [(1, 0), (2, 1), (3, 2), (4, 3)]:
         lines.append(
             f"      (if (i64.eq (local.get $msg) (i64.const {msg}))"
             f" (then (br $out (i64.const {model}))))"

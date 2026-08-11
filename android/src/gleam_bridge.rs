@@ -13,12 +13,6 @@ pub const MSG_BACK: i64 = 1;
 pub const MSG_LOADED: i64 = 2;
 pub const MSG_FAILED: i64 = 3;
 pub const MSG_NOPROFILE: i64 = 4;
-/// Open the Gleam help screen (`update(_, 5) -> model 4`).
-#[allow(dead_code)]
-pub const MSG_HELP: i64 = 5;
-/// Open the Gleam about screen (`update(_, 6) -> model 5`).
-#[allow(dead_code)]
-pub const MSG_ABOUT: i64 = 6;
 
 pub type Slots = ViewModel;
 

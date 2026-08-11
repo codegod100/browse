@@ -617,7 +617,7 @@ impl eframe::App for BrowseApp {
                                 return;
                             };
 
-                            // Startup: Gleam enter chrome (help/about) then host inventory.
+                            // Startup: Gleam enter chrome then host inventory.
                             if model == 0 {
                                 self.slots =
                                     Slots::for_enter(&self.local_repos, &self.repo_filter);
