@@ -148,6 +148,23 @@ fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
             std::env::set_var("RAD_HOME", dir);
         }
     }
+    // Vendored OpenSSL (git2's https transport, used to seed unseeded RIDs
+    // from a web gateway — see `rad::seed_gateways`) has no Android system
+    // trust store to fall back on inside the app sandbox, so every TLS
+    // handshake otherwise fails certificate verification. Extract our
+    // bundled CA bundle to app-private storage once and point OpenSSL at
+    // it via the env var it already knows how to read.
+    if std::env::var_os("SSL_CERT_FILE").is_none() {
+        if let Some(dir) = android_app.internal_data_path() {
+            let cert_path = dir.join("cacert.pem");
+            const CACERT_PEM: &[u8] = include_bytes!("../certs/cacert.pem");
+            match std::fs::write(&cert_path, CACERT_PEM) {
+                // SAFETY: single-threaded before other threads touch the env.
+                Ok(()) => std::env::set_var("SSL_CERT_FILE", &cert_path),
+                Err(e) => log::error!("write bundled cacert.pem: {e}"),
+            }
+        }
+    }
     log::info!("browse android_main start");
     match run_android(android_app) {
         Ok(()) => log::info!("browse run_android returned Ok"),
