@@ -882,8 +882,8 @@ fn patch_detail(
 
     let gap = th.spacing.md;
 
-    // Description, changed files, and diff expand to natural height and ride
-    // the whole-page ScrollArea — no nested max-height scroll boxes.
+    // Description (full width), then changed files | diff side-by-side.
+    // All expand to natural height and ride the whole-page ScrollArea.
     card(ui, th, |ui| {
         title_2(ui, th, &p.title);
         ui.add_space(th.spacing.sm);
@@ -929,40 +929,13 @@ fn patch_detail(
 
     ui.add_space(gap);
 
-    card(ui, th, |ui| {
-        title_2(ui, th, "Changed files");
-        ui.add_space(th.spacing.sm);
-        if state.patch_paths.is_empty() {
-            dim_label(ui, th, "(no file changes)");
-        } else {
-            ui.set_min_width(ui.available_width());
-            for path in state.patch_paths.clone() {
-                let selected =
-                    state.selected_patch_diff_path.as_deref() == Some(path.as_str());
-                let response = selectable_row(ui, th, &path, selected, false, true);
-                if response.clicked() {
-                    if let Some(profile) = profile {
-                        state.select_patch_diff_path(profile, &path);
-                    }
-                }
-            }
-        }
-    });
-
-    ui.add_space(gap);
-
-    card(ui, th, |ui| {
-        let title = state
-            .selected_patch_diff_path
-            .as_deref()
-            .unwrap_or("Diff");
-        title_2(ui, th, title);
-        ui.add_space(th.spacing.md);
-        if state.patch_diff_text.is_empty() {
-            dim_label(ui, th, "Select a changed file to view the patch.");
-        } else {
-            ui.set_min_width(ui.available_width());
-            diff_widget(ui, th, &state.patch_diff_text);
+    // Changed files in a left column; diff beside it when wide enough.
+    let paths = state.patch_paths.clone();
+    let selected = state.selected_patch_diff_path.clone();
+    let diff_text = state.patch_diff_text.clone();
+    changed_files_diff_panes(ui, th, &paths, selected.as_deref(), &diff_text, |path| {
+        if let Some(profile) = profile {
+            state.select_patch_diff_path(profile, path);
         }
     });
 }
@@ -1403,42 +1376,94 @@ fn commit_detail(ui: &mut egui::Ui, th: &Theme, state: &mut RepoUi, profile: Opt
         card(ui, th, |ui| {
             dim_label(ui, th, err);
         });
+        ui.add_space(th.spacing.md);
     }
 
-    let gap = th.spacing.md;
+    // Changed files in a left column; diff beside it when wide enough.
+    let paths = state.commit_paths.clone();
+    let selected = state.selected_diff_path.clone();
+    let diff_text = state.diff_text.clone();
+    changed_files_diff_panes(ui, th, &paths, selected.as_deref(), &diff_text, |path| {
+        if let Some(profile) = profile {
+            state.select_diff_path(profile, path);
+        }
+    });
+}
 
-    card(ui, th, |ui| {
-        title_2(ui, th, "Changed files");
-        ui.add_space(th.spacing.sm);
-        if state.commit_paths.is_empty() {
-            dim_label(ui, th, "(no file changes)");
-        } else {
-            ui.set_min_width(ui.available_width());
-            for path in state.commit_paths.clone() {
-                let selected = state.selected_diff_path.as_deref() == Some(path.as_str());
-                let response = selectable_row(ui, th, &path, selected, false, true);
-                if response.clicked() {
-                    if let Some(profile) = profile {
-                        state.select_diff_path(profile, &path);
+/// Left: changed-file list. Right: selected file diff. Stacks when narrow.
+fn changed_files_diff_panes(
+    ui: &mut egui::Ui,
+    th: &Theme,
+    paths: &[String],
+    selected_path: Option<&str>,
+    diff_text: &str,
+    mut on_select: impl FnMut(&str),
+) {
+    let gap = th.spacing.lg;
+    let avail_w = ui.available_width();
+    let list_w = list_pane_width(avail_w, 0.32);
+
+    let files = |ui: &mut egui::Ui, on_select: &mut dyn FnMut(&str)| {
+        card(ui, th, |ui| {
+            title_2(ui, th, "Changed files");
+            ui.add_space(th.spacing.sm);
+            if paths.is_empty() {
+                dim_label(ui, th, "(no file changes)");
+            } else {
+                ui.set_min_width(ui.available_width());
+                for path in paths {
+                    let selected = selected_path == Some(path.as_str());
+                    let response = selectable_row(ui, th, path, selected, false, true);
+                    if response.clicked() {
+                        on_select(path);
                     }
                 }
             }
-        }
-    });
+        });
+    };
 
-    ui.add_space(gap);
+    let diff = |ui: &mut egui::Ui| {
+        card(ui, th, |ui| {
+            let title = selected_path.unwrap_or("Diff");
+            title_2(ui, th, title);
+            ui.add_space(th.spacing.md);
+            if diff_text.is_empty() {
+                dim_label(ui, th, "Select a changed file to view the patch.");
+            } else {
+                ui.set_min_width(ui.available_width());
+                diff_widget(ui, th, diff_text);
+            }
+        });
+    };
 
-    card(ui, th, |ui| {
-        let title = state.selected_diff_path.as_deref().unwrap_or("Diff");
-        title_2(ui, th, title);
-        ui.add_space(th.spacing.md);
-        if state.diff_text.is_empty() {
-            dim_label(ui, th, "Select a changed file to view the patch.");
-        } else {
-            ui.set_min_width(ui.available_width());
-            diff_widget(ui, th, &state.diff_text);
-        }
-    });
+    if side_by_side(avail_w, 200.0, gap) {
+        let rest = (avail_w - list_w - gap).max(1.0);
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(list_w, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(list_w);
+                    ui.set_max_width(list_w);
+                    files(ui, &mut on_select);
+                },
+            );
+            ui.add_space(gap);
+            ui.allocate_ui_with_layout(
+                Vec2::new(rest, 1.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.set_min_width(rest);
+                    ui.set_max_width(rest);
+                    diff(ui);
+                },
+            );
+        });
+    } else {
+        files(ui, &mut on_select);
+        ui.add_space(gap);
+        diff(ui);
+    }
 }
 
 fn selectable_row(
