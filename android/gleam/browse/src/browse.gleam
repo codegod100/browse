@@ -233,27 +233,24 @@ fn enter_text(i: Int) -> String {
 // --- Viewing ---------------------------------------------------------------
 
 fn viewing_len() -> Int {
-  8
+  6
 }
 
 fn viewing_at(i: Int) -> Int {
   case i {
     0 -> card_open()
-    1 -> title_op()
-    2 -> space(1)
-    3 -> meta()
-    4 -> card_close()
-    5 -> space(2)
-    6 -> button(0, msg_back(), 0)
-    7 -> repo_tabs()
+    1 -> meta()
+    2 -> card_close()
+    3 -> space(2)
+    4 -> button(0, msg_back(), 0)
+    5 -> repo_tabs()
     _ -> 0
   }
 }
 
 fn viewing_text(i: Int) -> String {
   case i {
-    1 -> label(36)
-    6 -> label(4)
+    4 -> label(4)
     _ -> ""
   }
 }
