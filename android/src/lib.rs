@@ -14,6 +14,9 @@ mod view_api;
 #[cfg(target_os = "android")]
 mod android_clipboard;
 
+#[cfg(target_os = "android")]
+mod android_tls;
+
 pub use app::run_desktop;
 
 #[cfg(target_os = "android")]
@@ -152,24 +155,30 @@ fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
     // from a web gateway — see `rad::seed_gateways`) has no Android system
     // trust store to fall back on inside the app sandbox, so every TLS
     // handshake otherwise failed certificate verification (libgit2
-    // GIT_ECERTIFICATE, error code -17). Setting SSL_CERT_FILE alone isn't
-    // enough — libgit2's OpenSSL backend doesn't consult it; it has to be
-    // told explicitly via git2's opts API. Extract our bundled CA bundle to
-    // app-private storage once and point libgit2 at it directly (the env
-    // var is set too, for anything else that does read it).
+    // GIT_ECERTIFICATE, error code -17). Worse: Android's vendored OpenSSL
+    // is built with `no-stdio`, which disables file-based BIOs entirely, so
+    // libgit2's normal file-based cert API (below) can never succeed here
+    // no matter what — see `android_tls` for the in-memory workaround that
+    // actually fixes it. We still attempt the file-based call too (harmless
+    // if it fails) since it's also what triggers libgit2's global init that
+    // `android_tls::install_ca_bundle` depends on.
+    const CACERT_PEM: &[u8] = include_bytes!("../certs/cacert.pem");
     if let Some(dir) = android_app.internal_data_path() {
         let cert_path = dir.join("cacert.pem");
-        const CACERT_PEM: &[u8] = include_bytes!("../certs/cacert.pem");
         match std::fs::write(&cert_path, CACERT_PEM) {
             Ok(()) => {
                 // SAFETY: single-threaded, before any git2/network use.
                 std::env::set_var("SSL_CERT_FILE", &cert_path);
                 if let Err(e) = unsafe { git2::opts::set_ssl_cert_file(&cert_path) } {
-                    log::error!("git2 set_ssl_cert_file: {e}");
+                    log::debug!("git2 set_ssl_cert_file (expected to fail on Android): {e}");
                 }
             }
             Err(e) => log::error!("write bundled cacert.pem: {e}"),
         }
+    }
+    match android_tls::install_ca_bundle(CACERT_PEM) {
+        Ok(n) => log::info!("android_tls: loaded {n} CA certificates into libgit2's trust store"),
+        Err(e) => log::error!("android_tls::install_ca_bundle: {e}"),
     }
     log::info!("browse android_main start");
     match run_android(android_app) {

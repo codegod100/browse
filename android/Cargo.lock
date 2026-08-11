@@ -398,6 +398,7 @@ dependencies = [
  "android_logger",
  "eframe",
  "egui",
+ "foreign-types 0.3.2",
  "git2",
  "jni 0.21.1",
  "log",

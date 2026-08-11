@@ -67,6 +67,10 @@ winit = { version = "0.30", default-features = false, features = ["android-nativ
 jni = "0.21"
 # Cross-compile OpenSSL for radicle/git2 on Android (no system libssl).
 openssl = { version = "0.10", features = ["vendored"] }
+# For android_tls: load our CA bundle into libgit2's OpenSSL cert store
+# from memory (Android's vendored OpenSSL has no file-BIO support to load
+# it via git2's normal file-based cert API — see android_tls.rs).
+foreign-types = "0.3"
 
 [package.metadata.android]
 package = "uk.nandi.browse"
