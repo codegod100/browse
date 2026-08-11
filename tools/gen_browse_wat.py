@@ -119,7 +119,6 @@ SCREENS = {
         (pack(0), None),
         (pack(9), None),
         (pack(5, 2), None),
-        (pack(6), "Browse files at HEAD or recent commits and diffs."),
         (pack(15), None),
     ],
     2: [  # error
