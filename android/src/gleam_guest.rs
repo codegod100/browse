@@ -351,12 +351,12 @@ mod tests {
 
         let model = update(model, 2).expect("loaded");
         assert_eq!(model, 1);
-        assert_eq!(view_len(model).expect("len"), 9);
-        assert_eq!(view_text(model, 0).unwrap().unwrap(), "Back");
-        assert_eq!(view_text(model, 3).unwrap().unwrap(), "Repository");
+        assert_eq!(view_len(model).expect("len"), 8);
+        assert_eq!(view_text(model, 1).unwrap().unwrap(), "Repository");
+        assert_eq!(view_text(model, 6).unwrap().unwrap(), "Back");
         assert!(
-            !view_text(model, 0).unwrap().unwrap().eq("Browse"),
-            "Browse header should be gone from viewing chrome"
+            view_text(model, 0).unwrap().unwrap().is_empty(),
+            "viewing should start with the repo card, not chrome copy"
         );
 
         assert_eq!(update(0, 3).unwrap(), 2);

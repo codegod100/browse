@@ -435,8 +435,16 @@ pub fn paint(
                 i += 1;
             }
             Op::RepoTabs => {
-                flush_buttons(ui, th, &mut button_row, &mut effects);
-                RepoBrowser::show(ui, th, model, repo_ui, profile);
+                // Keep pending Gleam buttons (e.g. Back) in the same row as Files/Commits/…
+                RepoBrowser::show(
+                    ui,
+                    th,
+                    model,
+                    repo_ui,
+                    profile,
+                    std::mem::take(&mut button_row),
+                    &mut effects,
+                );
                 i += 1;
             }
             Op::Unknown(_) => {
