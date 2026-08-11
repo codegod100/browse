@@ -233,7 +233,7 @@ fn enter_text(i: Int) -> String {
 // --- Viewing ---------------------------------------------------------------
 
 fn viewing_len() -> Int {
-  16
+  12
 }
 
 fn viewing_at(i: Int) -> Int {
@@ -241,19 +241,15 @@ fn viewing_at(i: Int) -> Int {
     0 -> header_op()
     1 -> space(1)
     2 -> button(0, msg_back(), 0)
-    3 -> space(1)
-    4 -> status_op()
-    5 -> space(1)
-    6 -> status_op()
-    7 -> space(2)
-    8 -> card_open()
-    9 -> title_op()
-    10 -> space(1)
-    11 -> meta()
-    12 -> card_close()
-    13 -> space(2)
-    14 -> status_op()
-    15 -> repo_tabs()
+    3 -> space(2)
+    4 -> card_open()
+    5 -> title_op()
+    6 -> space(1)
+    7 -> meta()
+    8 -> card_close()
+    9 -> space(2)
+    10 -> status_op()
+    11 -> repo_tabs()
     _ -> 0
   }
 }
@@ -262,10 +258,8 @@ fn viewing_text(i: Int) -> String {
   case i {
     0 -> label(1)
     2 -> label(4)
-    4 -> "Repository opened from local Radicle storage."
-    6 -> label(35)
-    9 -> label(36)
-    14 -> "Browse files at HEAD or recent commits and diffs."
+    5 -> label(36)
+    10 -> "Browse files at HEAD or recent commits and diffs."
     _ -> ""
   }
 }
