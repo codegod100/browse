@@ -106,8 +106,6 @@ SCREENS = {
     ],
     1: [  # viewing
         (pack(8), None),
-        (pack(1), "Repository"),
-        (pack(5, 1), None),
         (pack(0), None),
         (pack(9), None),
         (pack(5, 2), None),
