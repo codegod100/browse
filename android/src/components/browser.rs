@@ -404,14 +404,14 @@ impl RepoBrowser {
             let patches = ui_label(26);
             let issues = ui_label(27);
             let jobs = ui_label(28);
-            tab_btn(ui, th, state.tab == Tab::Files, &files, None, false, || {
+            tab_btn(ui, th, state.tab == Tab::Files, &files, None, false, false, || {
                 if state.tab != Tab::Files {
                     state.tab = Tab::Files;
                     state.prefs_dirty = true;
                 }
             });
             ui.add_space(th.spacing.sm);
-            tab_btn(ui, th, state.tab == Tab::Commits, &commits, None, false, || {
+            tab_btn(ui, th, state.tab == Tab::Commits, &commits, None, false, false, || {
                 if state.tab != Tab::Commits {
                     state.tab = Tab::Commits;
                     state.prefs_dirty = true;
@@ -425,6 +425,7 @@ impl RepoBrowser {
                 &patches,
                 Some("Press again to reload"),
                 cobs_loading,
+                true,
                 || {
                     if state.tab == Tab::Patches {
                         state.reload_requested = true;
@@ -442,6 +443,7 @@ impl RepoBrowser {
                 &issues,
                 Some("Press again to reload"),
                 false,
+                false,
                 || {
                     if state.tab == Tab::Issues {
                         state.reload_requested = true;
@@ -458,6 +460,7 @@ impl RepoBrowser {
                 state.tab == Tab::Jobs,
                 &jobs,
                 Some("Press again to reload"),
+                false,
                 false,
                 || {
                     if state.tab == Tab::Jobs {
@@ -488,10 +491,12 @@ fn tab_btn(
     label: &str,
     hover: Option<&str>,
     loading: bool,
+    // Keep a spinner-sized trailing slot so load start/stop does not resize the button.
+    reserve_spinner: bool,
     on: impl FnOnce(),
 ) {
-    let response = if loading {
-        tab_btn_loading(ui, th, active, label)
+    let response = if reserve_spinner {
+        tab_btn_with_spinner_slot(ui, th, active, label, loading)
     } else if active {
         primary_button(ui, th, label)
     } else {
@@ -509,12 +514,13 @@ fn tab_btn(
     }
 }
 
-/// Patches tab while COBs load: same chrome as other tabs, spinner instead of status copy.
-fn tab_btn_loading(
+/// Patches tab: fixed chrome with optional spinner (no width FOUC when load toggles).
+fn tab_btn_with_spinner_slot(
     ui: &mut egui::Ui,
     th: &Theme,
     active: bool,
     label: &str,
+    loading: bool,
 ) -> egui::Response {
     let p = &th.palette;
     let (fg, bg, stroke) = if active {
@@ -559,17 +565,19 @@ fn tab_btn_loading(
             rect.center().y - galley.size().y * 0.5,
         );
         ui.painter().galley(text_pos, galley, fg);
-        let spinner_rect = Rect::from_center_size(
-            egui::pos2(
-                rect.right() - h_pad - spinner_size * 0.5,
-                rect.center().y,
-            ),
-            Vec2::splat(spinner_size),
-        );
-        egui::Spinner::new()
-            .size(spinner_size)
-            .color(fg)
-            .paint_at(ui, spinner_rect);
+        if loading {
+            let spinner_rect = Rect::from_center_size(
+                egui::pos2(
+                    rect.right() - h_pad - spinner_size * 0.5,
+                    rect.center().y,
+                ),
+                Vec2::splat(spinner_size),
+            );
+            egui::Spinner::new()
+                .size(spinner_size)
+                .color(fg)
+                .paint_at(ui, spinner_rect);
+        }
     }
 
     if let Some(cursor) = ui.visuals().interact_cursor {
@@ -1410,7 +1418,7 @@ fn status_tabs<S: Copy + PartialEq>(
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = th.spacing.sm;
         for &s in statuses {
-            tab_btn(ui, th, active == s, s.label(), None, false, || on_select(s));
+            tab_btn(ui, th, active == s, s.label(), None, false, false, || on_select(s));
         }
     });
 }
